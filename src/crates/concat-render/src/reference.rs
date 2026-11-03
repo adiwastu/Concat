@@ -759,6 +759,7 @@ mod tests {
             intensity: 1.0,
             lut: None,
             reveal_map: None,
+            word_map: None,
             stages: Vec::new(),
         };
         let mut frame_plan = plan(8, 8, vec![red, blue]);

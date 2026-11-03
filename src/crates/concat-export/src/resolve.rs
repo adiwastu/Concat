@@ -244,7 +244,7 @@ impl Treatment {
         } else {
             0.0
         };
-        Catalogue::builtin().shader_passes_at(&self.effects, at, None)
+        Catalogue::builtin().shader_passes_at(&self.effects, at, None, None)
     }
 
     /// How hard the treatment is applied at `time`: the strength, eased in

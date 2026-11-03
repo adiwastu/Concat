@@ -1,0 +1,35 @@
+# A probe runs against the identity word map - no word anywhere - which is
+# what a pass over a title without word times, or over anything that is
+# not a title, binds. The look is a no-op there: every pixel comes out as
+# it was painted, whatever its dials. Pinning that is the fixture's work;
+# the map itself is exercised by the renderer's tests, where a baked one
+# can be bound.
+
+[[probe]]
+name = "no word map, the pixel comes out as painted"
+input = [0.271845, 0.308081, 0.308081, 1]
+expect = [0.271845, 0.308081, 0.308081, 1]
+
+[[probe]]
+name = "no word map, a transparent pixel comes out as painted"
+input = [0.5, 0.4, 0.3, 0]
+expect = [0.5, 0.4, 0.3, 0]
+
+[[probe]]
+name = "no word map, the box at nothing changes nothing either"
+params = { badge_opacity = 0 }
+input = [0.1, 0.2, 0.3, 1]
+expect = [0.1, 0.2, 0.3, 1]
+
+# The dials at their bounds, over the same wordless map: nothing to move.
+[[probe]]
+name = "minimum"
+at = "min"
+input = [0.1, 0.2, 0.3, 1]
+expect = [0.1, 0.2, 0.3, 1]
+
+[[probe]]
+name = "maximum"
+at = "max"
+input = [0.1, 0.2, 0.3, 1]
+expect = [0.1, 0.2, 0.3, 1]

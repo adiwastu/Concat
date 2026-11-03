@@ -1452,6 +1452,7 @@ fn blur_pass(radius: f32) -> Option<ShaderPass> {
     Catalogue::builtin().get("concat.gaussian-blur")?.pass(
         &BTreeMap::from([("radius".to_owned(), f64::from(radius))]),
         None,
+        None,
     )
 }
 
@@ -2136,7 +2137,7 @@ fn passes_at(
     let at = timeline
         .clip(clip)
         .map_or(0.0, |engine_clip| engine_clip.fraction_at(time));
-    Catalogue::builtin().shader_passes_at(effects, at, reveal_maps.get(&clip).cloned())
+    Catalogue::builtin().shader_passes_at(effects, at, reveal_maps.get(&clip).cloned(), None)
 }
 
 /// Only the shader clock moves. Planning, source decoding, animated effect

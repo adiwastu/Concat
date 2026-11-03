@@ -559,6 +559,19 @@ pub struct TranscriberStatus {
     pub models: Vec<ModelStatus>,
 }
 
+/// One word of a caption, in seconds relative to the transcribed window's
+/// start: what a karaoke look needs to highlight the word being spoken.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct WordSpan {
+    /// Seconds from the window's start.
+    pub start: f64,
+    /// Seconds from the window's start.
+    pub end: f64,
+    /// The word itself, as whisper heard it.
+    pub text: String,
+}
+
 /// One caption, in seconds relative to the transcribed window's start.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -569,6 +582,11 @@ pub struct Segment {
     pub end: f64,
     /// What was said.
     pub text: String,
+    /// When each word was said, where whisper could time one. Empty for a
+    /// line whose words carry no times of their own - the older shape, and
+    /// what a caption look that ignores words reads.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub words: Vec<WordSpan>,
 }
 
 /// What to transcribe.
@@ -951,6 +969,12 @@ impl Transcriber {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+        // Per-token times, so each word knows when it was said: the
+        // karaoke look highlights the word being spoken, and whisper's
+        // segment times alone cannot say which word that is. The tokens
+        // are read in `run`; the segment's own times are unchanged by
+        // this, so captions that ignore words read exactly as before.
+        params.set_token_timestamps(true);
         params.set_suppress_blank(true);
         // Non-speech tokens are left to whisper: "[Music]", "(tepuk
         // tangan)" and "♪" are how it says what it hears is not words,
@@ -1021,10 +1045,18 @@ impl Transcriber {
             let end = reel.to_source(segment.end_timestamp() as f64 / 100.0);
             let (start, end) = on_speech(start, end, &speech);
             let mut text = segment.to_str_lossy().ok()?.trim().to_owned();
+            let mut words = words_of(&context, &segment, &reel);
             if recipe.prune {
-                text = unloop(&text);
+                let unlooped = unloop(&text);
+                if unlooped != text {
+                    // The loop is gone from the text but not from the
+                    // times: highlighting words for a line that was never
+                    // said that way would mark the wrong ones.
+                    words.clear();
+                }
+                text = unlooped;
             }
-            keep_segment(start, end, text)
+            keep_segment(start, end, text, normalize_words(words))
         });
         let lines: Vec<Segment> = lines.collect();
         Ok(if recipe.prune {
@@ -1047,14 +1079,144 @@ impl Transcriber {
 /// Whisper marks silence and music with bracketed stage directions
 /// ("[BLANK_AUDIO]", "(upbeat music)") or with notes ("♪"). Those are not
 /// captions, and neither is a line with no letter or digit in it, nor an
-/// empty or degenerate span.
-fn keep_segment(start: f64, end: f64, text: String) -> Option<Segment> {
+/// empty or degenerate span. Words that fall outside the line's span - a
+/// token time past the line's own, or a word over silence the span was
+/// drawn in from - go with the span they were clamped to.
+fn keep_segment(start: f64, end: f64, text: String, words: Vec<WordSpan>) -> Option<Segment> {
     let direction = (text.starts_with('[') && text.ends_with(']'))
         || (text.starts_with('(') && text.ends_with(')'));
     if direction || !text.chars().any(char::is_alphanumeric) {
         return None;
     }
-    (end > start).then_some(Segment { start, end, text })
+    let words: Vec<WordSpan> = words
+        .into_iter()
+        .filter_map(|mut word| {
+            word.start = word.start.max(start);
+            word.end = word.end.min(end);
+            (word.end > word.start).then_some(word)
+        })
+        .collect();
+    (end > start).then_some(Segment {
+        start,
+        end,
+        text,
+        words,
+    })
+}
+
+/// When a token starts a word of its own rather than joining the one
+/// being built. Whisper's tokens carry a leading space where a new word
+/// begins, so Latin scripts fall out of that alone; a script written
+/// without spaces - CJK, Thai - tokens a character or two at a time, and
+/// every token of letters is a word of its own, which is the timing a
+/// highlight over those scripts wants anyway. A token of nothing but
+/// punctuation rides the word it follows, in any script.
+fn starts_word(token_text: &str, built: &str) -> bool {
+    if token_text.starts_with(char::is_whitespace) {
+        return true;
+    }
+    if token_text
+        .chars()
+        .all(|c| is_word_mark(c) || c.is_whitespace())
+    {
+        return false;
+    }
+    built.chars().any(char::is_alphanumeric)
+        && built
+            .chars()
+            .chain(token_text.chars())
+            .any(|c| !c.is_ascii())
+}
+
+/// Punctuation and marks that never start a word of their own in a script
+/// without spaces.
+fn is_word_mark(c: char) -> bool {
+    matches!(
+        c,
+        ',' | '.'
+            | '、'
+            | '。'
+            | '，'
+            | '．'
+            | '！'
+            | '？'
+            | '…'
+            | '·'
+            | '「'
+            | '」'
+            | '『'
+            | '』'
+            | '（'
+            | '）'
+            | '：'
+            | '；'
+            | '　'
+    )
+}
+
+/// The words of one whisper segment, with when each was said: the tokens'
+/// own timestamps, folded into words and drawn back into the source's
+/// seconds. A token whose text cannot be read is left out; a word of
+/// tokens that carry no times is left out by [`normalize_words`], and the
+/// line reads as it always did.
+fn words_of(
+    context: &WhisperContext,
+    segment: &WhisperSegment,
+    reel: &SpeechReel,
+) -> Vec<WordSpan> {
+    let mut words: Vec<WordSpan> = Vec::new();
+    for index in 0..segment.n_tokens() {
+        let Some(token) = segment.get_token(index) else {
+            continue;
+        };
+        let data = token.token_data();
+        if data.id >= context.token_eot() {
+            continue;
+        }
+        let Ok(token_text) = context.token_to_str(data.id) else {
+            continue;
+        };
+        // Whisper's token timestamps are centiseconds, in what it heard.
+        let start = reel.to_source(data.t0 as f64 / 100.0);
+        let end = reel.to_source(data.t1 as f64 / 100.0);
+        match words
+            .last_mut()
+            .filter(|word| !starts_word(&token_text, &word.text))
+        {
+            Some(word) => {
+                word.text.push_str(token_text.trim());
+                word.end = word.end.max(end);
+            }
+            None => words.push(WordSpan {
+                start,
+                end,
+                text: token_text.trim().to_owned(),
+            }),
+        }
+    }
+    words
+}
+
+/// Words sorted and de-overlapped, so caption lines grouped from them can
+/// never overlap one another in time: sorted by start, each word's end
+/// trimmed to the next word's start, and starts held strictly increasing -
+/// whisper's segment timestamps can run backwards across a boundary, and
+/// its token times inherit that, so a word beginning before the one
+/// before it keeps the later start.
+fn normalize_words(mut words: Vec<WordSpan>) -> Vec<WordSpan> {
+    words.retain(|word| word.end > word.start && !word.text.is_empty());
+    words.sort_by(|a, b| a.start.total_cmp(&b.start).then(a.end.total_cmp(&b.end)));
+    let mut kept: Vec<WordSpan> = Vec::with_capacity(words.len());
+    for word in words {
+        if let Some(last) = kept.last_mut() {
+            if word.start <= last.start {
+                continue;
+            }
+            last.end = last.end.min(word.start);
+        }
+        kept.push(word);
+    }
+    kept
 }
 
 /// Whisper's own lines for what is not speech: a window it gives better
@@ -1306,15 +1468,72 @@ mod tests {
     #[test]
     fn stage_directions_and_degenerate_spans_are_not_captions() {
         assert_eq!(
-            keep_segment(0.0, 2.5, " Hello there.".trim().to_owned()).map(|s| s.text),
+            keep_segment(0.0, 2.5, " Hello there.".trim().to_owned(), Vec::new()).map(|s| s.text),
             Some("Hello there.".to_owned())
         );
-        assert!(keep_segment(2.5, 2.5, "degenerate".to_owned()).is_none());
-        assert!(keep_segment(3.0, 4.0, "[BLANK_AUDIO]".to_owned()).is_none());
-        assert!(keep_segment(3.0, 4.0, "(musik)".to_owned()).is_none());
-        assert!(keep_segment(3.0, 4.0, "♪ ♪".to_owned()).is_none());
-        assert!(keep_segment(3.0, 4.0, "Lalu (sambil tertawa) pergi.".to_owned()).is_some());
-        assert!(keep_segment(3.0, 4.0, String::new()).is_none());
+        assert!(keep_segment(2.5, 2.5, "degenerate".to_owned(), Vec::new()).is_none());
+        assert!(keep_segment(3.0, 4.0, "[BLANK_AUDIO]".to_owned(), Vec::new()).is_none());
+        assert!(keep_segment(3.0, 4.0, "(musik)".to_owned(), Vec::new()).is_none());
+        assert!(keep_segment(3.0, 4.0, "♪ ♪".to_owned(), Vec::new()).is_none());
+        assert!(keep_segment(3.0, 4.0, "Lalu (sambil tertawa) pergi.".to_owned(), Vec::new()).is_some());
+        assert!(keep_segment(3.0, 4.0, String::new(), Vec::new()).is_none());
+    }
+
+    #[test]
+    fn words_are_sorted_and_held_inside_the_line() {
+        let span = |start: f64, end: f64, text: &str| WordSpan {
+            start,
+            end,
+            text: text.to_owned(),
+        };
+        // Out of order, overlapping, and degenerate; the word past the
+        // line's span belongs to no caption and is left out whole.
+        let words = normalize_words(vec![
+            span(4.0, 3.6, "dua"),
+            span(5.0, 9.0, "tiga"),
+            span(3.0, 3.9, "satu"),
+            span(2.0, 2.5, "dulu"),
+            span(6.0, 6.0, "nol"),
+        ]);
+        let said: Vec<(&str, f64, f64)> = words
+            .iter()
+            .map(|w| (w.text.as_str(), w.start, w.end))
+            .collect();
+        assert_eq!(
+            said,
+            [("satu", 3.0, 3.6), ("dua", 3.6, 4.0), ("tiga", 4.0, 5.0)]
+        );
+    }
+
+    #[test]
+    fn a_word_starting_before_the_one_before_it_is_left_out() {
+        let span = |start: f64, end: f64| WordSpan {
+            start,
+            end,
+            text: "w".to_owned(),
+        };
+        // Whisper's times can run backwards across a segment boundary;
+        // strictly increasing starts are what a highlight over one word at
+        // a time needs, and the later word is the one worth keeping.
+        let words = normalize_words(vec![span(2.0, 3.0), span(1.0, 2.5), span(3.0, 4.0)]);
+        assert_eq!(
+            words.iter().map(|w| w.start).collect::<Vec<_>>(),
+            [1.0, 2.0, 3.0]
+        );
+        assert_eq!(words[0].end, 2.0);
+        assert_eq!(words[1].end, 3.0);
+    }
+
+    #[test]
+    fn a_leading_space_or_a_spaceless_script_starts_a_word() {
+        assert!(starts_word(" dua", ""));
+        assert!(!starts_word("dua", "sa"));
+        // Punctuation rides the word it follows.
+        assert!(!starts_word(",", "dua"));
+        // CJK carries no spaces: every token of letters is a word of its
+        // own, and its punctuation rides the word before it.
+        assert!(starts_word("你", "好"));
+        assert!(!starts_word("，", "好"));
     }
 
     #[test]
@@ -1441,6 +1660,7 @@ mod tests {
             start,
             end: start + 1.0,
             text: text.to_owned(),
+            words: Vec::new(),
         };
         let kept = drop_repeats(vec![
             line(0.0, "Yes."),

@@ -62,6 +62,11 @@ pub struct ShaderPass {
     /// so the call is harmless for a pass over anything that is not a
     /// title. See [`RevealMap`].
     pub reveal_map: Option<Arc<RevealMap>>,
+    /// A title's per-word times, bound as a 2D texture the shader's
+    /// `word_at()` samples; None binds a map that says no word anywhere,
+    /// so the call is harmless for a pass over anything that is not a
+    /// karaoke title. See [`WordMap`].
+    pub word_map: Option<Arc<WordMap>>,
     /// The passes drawn before the last, in order, each into a picture of
     /// its own that every pass after it may read: empty for a package drawn
     /// in one pass, which is most of them. The last pass is `fs_main`.
@@ -276,6 +281,120 @@ impl RevealMap {
     /// almost free to keep resident.
     pub fn identity() -> RevealMap {
         RevealMap::from_rects(2, 2, &[])
+    }
+}
+
+/// A title's per-word times, baked once into a texture exactly as a
+/// [`RevealMap`] bakes its order: each word's rect painted with when the
+/// word begins and ends, as fractions of the clip, and the corner mask a
+/// badge behind it rounds by. A karaoke look reads a pixel's word with one
+/// lookup and holds the fractions against how far into the clip it is, so
+/// which word is being spoken is decided per pixel, on the GPU, with no
+/// uniform of its own and no second raster of the title.
+///
+/// The channels: red the word's start, green its end, both encoded so zero
+/// means no word was painted here - a fraction `f` lands on
+/// `1 + f * 253`, which keeps `0..=1` whole and leaves `0` free - and blue
+/// the rounded-corner mask, 255 fully inside the badge, fading across its
+/// corners; alpha the word's index over the count, for anything that wants
+/// to know which word rather than when. Fractions outside `0..=1` clamp,
+/// and a word whose end is not past its start is left out: it would never
+/// highlight, and a rect painted with nothing reads as no word at all.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WordMap {
+    /// A hash of the contents, so a renderer can cache the upload.
+    pub id: u64,
+    /// The canvas width this map was baked at.
+    pub width: u32,
+    /// The canvas height this map was baked at.
+    pub height: u32,
+    /// `width * height * 4` bytes, one RGBA pixel each.
+    pub rgba: Arc<[u8]>,
+}
+
+/// How round a badge's corners are, as a fraction of the word's height.
+/// The mask is baked with this, so a look that wants a different shape
+/// reshapes the map, not the shader.
+const BADGE_ROUND: f64 = 0.25;
+
+/// An anti-aliased step: 0 under `edge - 0.5`, 1 over `edge + 0.5`, the
+/// ramp between - the same edge a signed-distance field draws with.
+fn coverage(dist: f64, edge: f64) -> u8 {
+    ((edge - dist + 0.5).clamp(0.0, 1.0) * 255.0).round() as u8
+}
+
+impl WordMap {
+    /// A map `width` by `height`, `rects` each `((x, y, width, height),
+    /// start, end)` in canvas pixels and clip fractions, in word order -
+    /// reading order is what a caller normally means. A pixel outside
+    /// every rect reads as no word; one inside more than one keeps the
+    /// later word, though words in practice never overlap.
+    pub fn from_timed_rects(
+        width: u32,
+        height: u32,
+        rects: &[((i32, i32, u32, u32), f64, f64)],
+    ) -> WordMap {
+        let mut rgba = vec![0u8; width as usize * height as usize * 4];
+        let words = rects.len() as f64;
+        for (index, &((x, y, w, h), start, end)) in rects.iter().enumerate() {
+            let (start, end) = (start.clamp(0.0, 1.0), end.clamp(0.0, 1.0));
+            if end <= start {
+                continue;
+            }
+            let red = 1.0 + start * 253.0;
+            let green = 1.0 + end * 253.0;
+            let alpha = ((index as f64 / words.max(1.0)) * 255.0).round() as u8;
+            let radius = BADGE_ROUND * h.min(u32::MAX as i32 as u32) as f64;
+            // The corner circles sit one radius in from the rect's sides,
+            // and a pixel is masked where it falls outside its nearest
+            // circle. Measured from the circle's centre, so the straight
+            // runs between corners stay unmasked.
+            let x0 = x as f64;
+            let y0 = y as f64;
+            let x1 = x0 + w as f64;
+            let y1 = y0 + h as f64;
+            let cx0 = x0 + radius;
+            let cy0 = y0 + radius;
+            let cx1 = x1 - radius;
+            let cy1 = y1 - radius;
+            for row in y.max(0) as u32..(y + h as i32).clamp(0, height as i32) as u32 {
+                let py = row as f64 + 0.5;
+                let dy0 = (cy0 - py).max(0.0);
+                let dy1 = (py - cy1).max(0.0);
+                let line = row as usize * width as usize;
+                for column in x.max(0) as u32..(x + w as i32).clamp(0, width as i32) as u32 {
+                    let px = column as f64 + 0.5;
+                    let dx0 = (cx0 - px).max(0.0);
+                    let dx1 = (px - cx1).max(0.0);
+                    // The farthest of the four corners' pulls: zero
+                    // anywhere a circle does not reach.
+                    let dist = (dx0 * dx0 + dy0 * dy0)
+                        .sqrt()
+                        .max((dx1 * dx1 + dy0 * dy0).sqrt())
+                        .max((dx0 * dx0 + dy1 * dy1).sqrt())
+                        .max((dx1 * dx1 + dy1 * dy1).sqrt());
+                    let pixel = (line + column as usize) * 4;
+                    rgba[pixel] = red as u8;
+                    rgba[pixel + 1] = green as u8;
+                    rgba[pixel + 2] = coverage(dist, radius);
+                    rgba[pixel + 3] = alpha;
+                }
+            }
+        }
+        let id = fnv64(&rgba) ^ u64::from(width) ^ (u64::from(height) << 32);
+        WordMap {
+            id,
+            width,
+            height,
+            rgba: rgba.into(),
+        }
+    }
+
+    /// The map that says no word anywhere: what a pass without one binds,
+    /// and a two-by-two texture, so the identity is almost free to keep
+    /// resident.
+    pub fn identity() -> WordMap {
+        WordMap::from_timed_rects(2, 2, &[])
     }
 }
 

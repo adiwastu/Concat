@@ -1,0 +1,54 @@
+format = 2
+
+[effect]
+id = "concat.karaoke"
+name = "Karaoke"
+kind = "effect"
+category = "Basic"
+order = 3
+version = 1
+description = "Highlights the word being spoken - the caption's words carry when each was said, from transcription - and, if you like, a coloured box behind it, rounded, the short-form video look. A title without word times reads exactly as painted."
+
+# The colour the spoken word is drawn in while it is the one being said;
+# the other words keep the title's own.
+[[param]]
+key = "highlight"
+label = "Highlight"
+type = "color"
+min = 0
+max = 4294967295
+default = 4294967040
+
+# The box behind the spoken word. Its dial is how much of it is drawn -
+# at nothing the box is not drawn at all, and the spoken word is
+# highlighted in `highlight` alone.
+[[param]]
+key = "badge"
+label = "Box"
+type = "color"
+min = 0
+max = 4294967295
+default = 4278243512
+
+# The spoken word's colour while it sits on the box.
+[[param]]
+key = "badge_text"
+label = "Word on box"
+type = "color"
+min = 0
+max = 4294967295
+default = 4294967040
+
+# How much of the box to draw, 100 % whole. At 0 no box: the spoken word
+# is highlighted in `highlight` over the title as painted.
+[[param]]
+key = "badge_opacity"
+label = "Box opacity"
+min = 0
+max = 100
+default = 100
+step = 1
+unit = "%"
+
+[wgsl]
+entry = "effect.wgsl"

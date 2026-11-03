@@ -110,7 +110,7 @@ impl Card {
                 settings.progress.unwrap_or(f64::from(CUT_AT)),
             )?)
         } else {
-            let pass = package.pass(&set, None)?;
+            let pass = package.pass(&set, None, None)?;
             if package.category().eq_ignore_ascii_case("Text") {
                 Drawing::Title(pass)
             } else {

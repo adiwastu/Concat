@@ -99,7 +99,7 @@ fn package(
         .iter()
         .map(|(key, value)| ((*key).to_owned(), *value))
         .collect();
-    shader.pass(&values, &manifest.params, intensity, None, None)
+    shader.pass(&values, &manifest.params, intensity, None, None, None)
 }
 
 const INVERT: &str = "fn effect(uv: vec2<f32>) -> vec4<f32> { let c = sample(uv); return vec4<f32>(vec3<f32>(1.0) - c.rgb, c.a); }";
@@ -1389,7 +1389,7 @@ fn scene_linear(id: &str, body: &str, intensity: f32) -> ShaderPass {
     ))
     .expect("a manifest");
     let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
-    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None)
+    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None), None
 }
 
 /// Within `tolerance` of `want` a channel, relative, for the colour and
@@ -1670,7 +1670,7 @@ fn in_passes(body: &str, passes: &str, params: &str, intensity: f32) -> ShaderPa
     ))
     .expect("a manifest");
     let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
-    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None)
+    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None), None
 }
 
 /// The picture `picture`, `size` pixels, blurred by a Gaussian of `sigma`
@@ -1814,7 +1814,7 @@ fn the_gaussian_blur_is_a_direct_gaussian() {
         (50.0, 16, 16),
     ] {
         let pass = blur
-            .pass(&BTreeMap::from([("radius".to_owned(), radius)]), None)
+            .pass(&BTreeMap::from([("radius".to_owned(), radius)]), None, None)
             .expect("a shader");
         assert_eq!(
             pass.stages
@@ -1935,7 +1935,7 @@ fn a_table_is_read_in_its_space_and_carried_past_its_ends() {
         .expect("a manifest");
         concat_effects::Shader::compile(&manifest, concat_effects::looks::SHADER)
             .expect("compiles")
-            .pass(&BTreeMap::new(), &[], 1.0, Some(Arc::new(lut)), None)
+            .pass(&BTreeMap::new(), &[], 1.0, Some(Arc::new(lut)), None, None)
     };
     for space in ["display", "log"] {
         let identity = look(space, Lut::identity(33));
@@ -2095,7 +2095,7 @@ fn the_fisheye_fills_the_frame() {
         .get("concat.fisheye")
         .expect("a built-in");
     let pass = fisheye
-        .pass(&BTreeMap::from([("strength".to_owned(), 100.0)]), None)
+        .pass(&BTreeMap::from([("strength".to_owned(), 100.0)]), None, None)
         .expect("a shader");
     for size in [(96, 54), (54, 96), (64, 64)] {
         let flat = vec![[0.3f32, 0.5, 0.7, 1.0]; (size.0 * size.1) as usize];

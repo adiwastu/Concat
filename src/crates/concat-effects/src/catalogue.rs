@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 use crate::Error;
 use crate::expr::{Expr, Value};
-use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass};
+use concat_core::{Lut, RevealMap, ShaderPass, TransitionPass, WordMap};
 
 use crate::manifest::{Kind, Manifest, ParamType};
 use crate::shader::{Shader, TransitionShader};
@@ -468,7 +468,7 @@ impl Package {
     /// runs once before the package is offered. None for a package with
     /// no shader.
     pub fn trial_pass(&self) -> Option<ShaderPass> {
-        self.pass(&BTreeMap::new(), None)
+        self.pass(&BTreeMap::new(), None, None)
     }
 
     /// The passes an install trial runs: the shader at its defaults, then
@@ -479,7 +479,7 @@ impl Package {
     pub fn trial_passes(&self) -> Vec<ShaderPass> {
         [At::Default, At::Min, At::Max]
             .into_iter()
-            .filter_map(|at| self.pass(&self.params_at(at), None))
+            .filter_map(|at| self.pass(&self.params_at(at), None, None))
             .collect()
     }
 
@@ -491,6 +491,7 @@ impl Package {
         &self,
         set: &BTreeMap<String, f64>,
         reveal_map: Option<Arc<RevealMap>>,
+        word_map: Option<Arc<WordMap>>,
     ) -> Option<ShaderPass> {
         let shader = self.shader.as_ref()?;
         let intensity = if self.kind() == Kind::Filter {
@@ -505,13 +506,14 @@ impl Package {
             intensity,
             self.lut.clone(),
             reveal_map,
+            word_map,
         ))
     }
 
     /// The pass a probe checks: the parameters at its starting point with
     /// its own set on top. None for a package with no shader.
     pub fn probe_pass(&self, probe: &Probe) -> Option<ShaderPass> {
-        self.pass(&self.set_at(probe.at, &probe.params), None)
+        self.pass(&self.set_at(probe.at, &probe.params), None, None)
     }
 
     /// The combine a transition's probe checks, at its progress. None for
@@ -1200,13 +1202,16 @@ impl Catalogue {
     /// an effect is always whole. `reveal_map` is a title's baked per-word
     /// order, carried to every pass exactly as a package's own look-up
     /// table is - None for anything that is not a title, harmless for a
-    /// package that never reads `reveal_order()`.
+    /// package that never reads `reveal_order()`. `word_map` rides the same
+    /// way, a title's per-word times for a look that highlights the word
+    /// being spoken.
     pub fn shader_passes(
         &self,
         effects: &[AppliedFilter],
         reveal_map: Option<Arc<RevealMap>>,
+        word_map: Option<Arc<WordMap>>,
     ) -> Vec<ShaderPass> {
-        self.passes_with(effects, |applied| applied.params.clone(), reveal_map)
+        self.passes_with(effects, |applied| applied.params.clone(), reveal_map, word_map)
     }
 
     /// The same passes at one instant of the clip, `at` in `0..=1`: a
@@ -1217,8 +1222,9 @@ impl Catalogue {
         effects: &[AppliedFilter],
         at: f64,
         reveal_map: Option<Arc<RevealMap>>,
+        word_map: Option<Arc<WordMap>>,
     ) -> Vec<ShaderPass> {
-        self.passes_with(effects, |applied| applied.params_at(at), reveal_map)
+        self.passes_with(effects, |applied| applied.params_at(at), reveal_map, word_map)
     }
 
     /// The two-input pass for a transition package at `progress` in `0..=1`,
@@ -1247,13 +1253,17 @@ impl Catalogue {
         effects: &[AppliedFilter],
         params_of: impl Fn(&AppliedFilter) -> BTreeMap<String, f64>,
         reveal_map: Option<Arc<RevealMap>>,
+        word_map: Option<Arc<WordMap>>,
     ) -> Vec<ShaderPass> {
         effects
             .iter()
             .filter(|applied| applied.enabled)
             .filter_map(|applied| {
-                self.get(&applied.id)?
-                    .pass(&params_of(applied), reveal_map.clone())
+                self.get(&applied.id)?.pass(
+                    &params_of(applied),
+                    reveal_map.clone(),
+                    word_map.clone(),
+                )
             })
             .collect()
     }

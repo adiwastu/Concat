@@ -114,7 +114,7 @@ mod tests {
         let package = catalogue.get("test.table").expect("loaded");
         assert_eq!(package.lut().map(|lut| lut.size), Some(2));
         assert_eq!(
-            catalogue.shader_passes(&[AppliedFilter::new("test.table")], None)[0]
+            catalogue.shader_passes(&[AppliedFilter::new("test.table")], None, None)[0]
                 .lut
                 .as_ref()
                 .map(|l| l.size),
@@ -450,7 +450,7 @@ mod tests {
             "{errors:?}"
         );
         assert!(errors[1].contains("format 1"), "{errors:?}");
-        let passes = catalogue.shader_passes(&[applied("alice.tint", &[("hue", 45.0)])], None);
+        let passes = catalogue.shader_passes(&[applied("alice.tint", &[("hue", 45.0)])], None, None);
         assert_eq!(passes.len(), 1);
         assert_eq!(passes[0].values.get("hue"), Some(&45.0));
         let _ = std::fs::remove_dir_all(&dir);

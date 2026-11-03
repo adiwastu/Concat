@@ -44,7 +44,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
-use concat_core::{Lut, RevealMap, ShaderPass, Stage, TransitionPass};
+use concat_core::{Lut, RevealMap, ShaderPass, Stage, TransitionPass, WordMap};
 
 use crate::expr::{Expr, Value};
 use crate::manifest::{MAX_CURVE_POINTS, MAX_SHRINK, Manifest, Param, ParamType, Pass, Space};
@@ -72,6 +72,11 @@ struct Frame {
     /// stack, a synthesized ground - carry zero here always, which reads
     /// as "just started" forever; a look that only loops is unaffected.
     clip_time: f32,
+    /// How long the layer's own clip runs, in seconds - what `clip_time`
+    /// counts up to. Zero for a layer with no single clip of its own,
+    /// where a fraction of the clip is meaningless anyway; a look that
+    /// reads it divides by at least a hair so the math stays finite.
+    duration: f32,
 }
 
 @group(0) @binding(0) var source: texture_2d<f32>;
@@ -82,6 +87,8 @@ struct Frame {
 @group(2) @binding(1) var lut_sampler: sampler;
 @group(3) @binding(0) var reveal_texture: texture_2d<f32>;
 @group(3) @binding(1) var reveal_sampler: sampler;
+@group(3) @binding(2) var word_texture: texture_2d<f32>;
+@group(3) @binding(3) var word_sampler: sampler;
 
 /// A title's per-word reveal order at `uv`, 0..1 - the word painted there,
 /// 0 for the first and 1 for the last, and 0 wherever no word was. A
@@ -90,6 +97,16 @@ struct Frame {
 /// package built on it is a no-op off a title with no special casing.
 fn reveal_order(uv: vec2<f32>) -> f32 {
     return textureSampleLevel(reveal_texture, reveal_sampler, uv, 0.0).r;
+}
+
+/// A title's per-word times at `uv`: x the fraction of the clip the word
+/// painted there begins at, y the fraction it ends at, both 0 wherever no
+/// word was - so a package built on them is a no-op off a title with no
+/// special casing. The badge mask rides in z: 1 fully inside the word's
+/// rounded box, fading across its corners.
+fn word_at(uv: vec2<f32>) -> vec3<f32> {
+    let word = textureSampleLevel(word_texture, word_sampler, uv, 0.0);
+    return vec3<f32>((word.r - 1.0) / 253.0, (word.g - 1.0) / 253.0, word.b);
 }
 "#;
 
@@ -981,6 +998,7 @@ impl Shader {
         intensity: f32,
         lut: Option<Arc<Lut>>,
         reveal_map: Option<Arc<RevealMap>>,
+        word_map: Option<Arc<WordMap>>,
     ) -> ShaderPass {
         ShaderPass {
             package: self.package.clone(),
@@ -991,6 +1009,7 @@ impl Shader {
             intensity,
             lut,
             reveal_map,
+            word_map,
             stages: self.stages.iter().map(|rule| rule.stage(values)).collect(),
         }
     }
@@ -1026,11 +1045,11 @@ const FIRST_PICTURE: u32 = 2;
 
 /// What the host provides at `(group, binding)` for `entry`, and so the
 /// only thing a package may declare there: an effect's layer at (0,0)-(0,1),
-/// the pictures of its `pictures` passes after it, and its reveal map at
-/// group 3; a transition's two pictures at (0,0)-(0,3) and nothing at group
-/// 3; the frame block and parameters at group 1 and the look-up table at
-/// group 2 for both. A slot outside this, or one declared as something
-/// else, is a pipeline the device cannot build.
+/// the pictures of its `pictures` passes after it, and its reveal map and
+/// word map at group 3; a transition's two pictures at (0,0)-(0,3) and
+/// nothing at group 3; the frame block and parameters at group 1 and the
+/// look-up table at group 2 for both. A slot outside this, or one declared
+/// as something else, is a pipeline the device cannot build.
 fn provided(entry: Entry, pictures: usize, group: u32, binding: u32) -> Option<Bound> {
     let passes = FIRST_PICTURE..FIRST_PICTURE + pictures as u32;
     match (entry, group, binding) {
@@ -1044,6 +1063,8 @@ fn provided(entry: Entry, pictures: usize, group: u32, binding: u32) -> Option<B
         (_, 2, 1) => Some(Bound::Sampler),
         (Entry::Effect, 3, 0) => Some(Bound::Picture),
         (Entry::Effect, 3, 1) => Some(Bound::Sampler),
+        (Entry::Effect, 3, 2) => Some(Bound::Picture),
+        (Entry::Effect, 3, 3) => Some(Bound::Sampler),
         _ => None,
     }
 }
@@ -2195,7 +2216,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         let stages = |radius: f64| {
             let values = BTreeMap::from([("radius".to_owned(), radius)]);
             shader
-                .pass(&values, &manifest.params, 1.0, None, None)
+                .pass(&values, &manifest.params, 1.0, None, None, None)
                 .stages
                 .iter()
                 .map(|stage| (stage.entry.clone(), stage.shrink))
@@ -2220,7 +2241,7 @@ fn transition(uv: vec2<f32>, progress: f32) -> vec4<f32> {
         .expect("compiles");
         assert!(
             single
-                .pass(&BTreeMap::new(), &[], 1.0, None, None)
+                .pass(&BTreeMap::new(), &[], 1.0, None, None, None)
                 .stages
                 .is_empty(),
             "a package drawn in one pass has no stages"

@@ -1587,6 +1587,22 @@ pub struct TextRun {
     pub style: RunStyle,
 }
 
+/// When one word of a caption is spoken, in seconds of the clip's own
+/// time - zero at the clip's first frame, whatever moment of the timeline
+/// the clip sits at. What a karaoke look holds a title's layout words
+/// against to highlight the one being said; kept sorted, de-overlapped and
+/// strictly increasing in `start`, so exactly one word is ever current.
+/// Empty for a caption whose words carry no times of their own.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Clone, PartialEq, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextWord {
+    /// Seconds into the clip the word begins at.
+    pub start: f64,
+    /// Seconds into the clip it ends at.
+    pub end: f64,
+}
+
 /// A title's styling. Sizes are fractions of the frame, so a title composed
 /// against 1080p lands correctly exported at 4K. A style arriving in a
 /// command needs only the fields it changes; the rest are the default's, so
@@ -1673,6 +1689,12 @@ pub struct TextStyle {
     /// a document with them as the title in its own look.
     #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "wire::list")]
     pub runs: Vec<TextRun>,
+    /// When each word of a caption is spoken, for a karaoke look. Empty -
+    /// and then not written at all, like `runs` - for a title whose words
+    /// have no times of their own, which is every title but a caption
+    /// made from speech.
+    #[serde(skip_serializing_if = "Vec::is_empty", deserialize_with = "wire::list")]
+    pub words: Vec<TextWord>,
 }
 
 impl TextStyle {
@@ -1706,7 +1728,28 @@ impl TextStyle {
         self.background_padding_y =
             finite(self.background_padding_y, base.background_padding_y).max(0.0);
         self.tidy_runs();
+        self.tidy_words();
         self
+    }
+
+    /// The word times held to what a karaoke look can read: sorted, with
+    /// starts strictly increasing - exactly one word is ever the one being
+    /// spoken - each word's end trimmed to the next start, and words that
+    /// run no time or run past a negative start left out.
+    fn tidy_words(&mut self) {
+        self.words.retain(|word| word.end > word.start && word.start.is_finite());
+        self.words.sort_by(|a, b| a.start.total_cmp(&b.start));
+        let mut kept: Vec<TextWord> = Vec::with_capacity(self.words.len());
+        for word in self.words.drain(..) {
+            if let Some(last) = kept.last_mut() {
+                if word.start <= last.start {
+                    continue;
+                }
+                last.end = last.end.min(word.start);
+            }
+            kept.push(word);
+        }
+        self.words = kept;
     }
 }
 
@@ -1739,6 +1782,7 @@ impl Default for TextStyle {
             max_width: 0.0,
             max_height: 0.0,
             runs: Vec::new(),
+            words: Vec::new(),
         }
     }
 }
