@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use concat_core::frame::Frame;
-use concat_core::shader::{Lut, RevealMap, ShaderPass};
+use concat_core::shader::{Lut, RevealMap, ShaderPass, WordMap};
 use concat_core::timeline::{Blend, Transform};
 
 use super::*;
@@ -156,7 +156,10 @@ fn a_see_through_canvas_keeps_the_alpha_of_what_covers_it() {
     });
     let pixel = frame.pixel(4, 2).expect("a pixel");
     assert!(pixel[3].abs_diff(128) <= 1, "{pixel:?}");
-    assert!(pixel[0].abs_diff(200) <= 2 && pixel[1].abs_diff(40) <= 2, "{pixel:?}");
+    assert!(
+        pixel[0].abs_diff(200) <= 2 && pixel[1].abs_diff(40) <= 2,
+        "{pixel:?}"
+    );
 
     // And an opaque canvas after it is opaque again.
     let frame = gpu.render(&FramePlan::empty(4, 4));
@@ -168,7 +171,12 @@ fn a_see_through_canvas_keeps_the_alpha_of_what_covers_it() {
 #[test]
 fn an_empty_frame_is_the_canvas_colour() {
     let Some(mut gpu) = gpu() else { return };
-    for canvas in [[0, 177, 64, 255], [255, 255, 255, 255], [0, 71, 187, 255], [31, 31, 31, 255]] {
+    for canvas in [
+        [0, 177, 64, 255],
+        [255, 255, 255, 255],
+        [0, 71, 187, 255],
+        [31, 31, 31, 255],
+    ] {
         let frame = gpu.render(&FramePlan {
             canvas,
             ..FramePlan::empty(4, 4)
@@ -718,6 +726,59 @@ fn a_pass_reads_its_reveal_map_and_the_identity_everywhere() {
     assert_eq!(&out.pixels()[..4], &[0, 0, 0, 255]);
 }
 
+/// A pass lights the word being spoken: the word map times each of the
+/// title's two words - the first over the clip's first half, the second
+/// over the second - and the look holds that against `clip_time` over
+/// `duration`. At a quarter of the clip the first word's half of the
+/// canvas is lit and the second's is not; at three quarters, the other
+/// way. A pass without a map reads no word anywhere, and lights nothing.
+#[test]
+fn a_pass_lights_the_word_being_spoken() {
+    let Some(mut gpu) = gpu() else { return };
+    let body = "fn effect(uv: vec2<f32>) -> vec4<f32> {         let word = word_at(uv);         let now = frame.clip_time / max(frame.duration, 0.001);         return select(sample(uv), vec4<f32>(0.0, 1.0, 0.0, 1.0), word.x <= now && now < word.y); }";
+    let map = WordMap::from_timed_rects(
+        4,
+        4,
+        &[((0, 0, 2, 4), 0.0, 0.5), ((2, 0, 2, 4), 0.5, 1.0)],
+    );
+    let mut lit = |fraction: f64| {
+        let mut timed = layer(solid(4, 4, [0, 0, 0, 255]));
+        timed.clip_duration =
+            concat_core::time::Rational::approximate(2.0).expect("a rational");
+        let mut pass = package("test.karaoke", body, "", &[], 1.0);
+        pass.word_map = Some(Arc::new(map.clone()));
+        timed.effects = vec![pass];
+        let mut p = plan(4, 4, vec![timed]);
+        p.time =
+            concat_core::time::Rational::approximate(2.0 * fraction).expect("a rational");
+        gpu.render(&p)
+    };
+    let first = lit(0.25);
+    assert_eq!(&first.pixels()[..3], &[0, 255, 0], "the first word is lit");
+    assert_eq!(
+        &first.pixels()[8..11],
+        &[0, 0, 0, 0][..3],
+        "the second is not yet"
+    );
+    let second = lit(0.75);
+    assert_eq!(
+        &second.pixels()[8..11],
+        &[0, 255, 0],
+        "the second word is lit"
+    );
+    assert_eq!(
+        &second.pixels()[..3],
+        &[0, 0, 0],
+        "the first is done"
+    );
+
+    // No map, no word anywhere, nothing lit.
+    let mut plain = layer(solid(4, 4, [0, 0, 0, 255]));
+    plain.effects = vec![package("test.karaoke", body, "", &[], 1.0)];
+    let out = gpu.render(&plan(4, 4, vec![plain]));
+    assert_eq!(&out.pixels()[..4], &[0, 0, 0, 255]);
+}
+
 /// A transition combines its two inputs through its shader: a trivial
 /// dissolve over two solid colours must equal `from` at progress 0, `to`
 /// at progress 1, and the exact half-and-half mix at progress 0.5. The
@@ -776,6 +837,7 @@ fn every_shader_package_renders_at_its_defaults() {
             &package.manifest.params,
             1.0,
             package.lut().cloned(),
+            None,
             None,
         );
         let mut treated = layer(source.clone());
@@ -1389,7 +1451,14 @@ fn scene_linear(id: &str, body: &str, intensity: f32) -> ShaderPass {
     ))
     .expect("a manifest");
     let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
-    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None), None
+    shader.pass(
+        &BTreeMap::new(),
+        &manifest.params,
+        intensity,
+        None,
+        None,
+        None,
+    )
 }
 
 /// Within `tolerance` of `want` a channel, relative, for the colour and
@@ -1655,7 +1724,7 @@ fn treated(
     gpu.used.values_mut().for_each(|used| *used = 0);
     gpu.composites += 1;
     let source = written(gpu, size, picture);
-    let drawn = gpu.run_passes(size.0, size.1, source, passes, 0.0, 0.0);
+    let drawn = gpu.run_passes(size.0, size.1, source, passes, 0.0, 0.0, 0.0);
     let out = read_floats(gpu, size, drawn);
     gpu.retire();
     out
@@ -1670,7 +1739,14 @@ fn in_passes(body: &str, passes: &str, params: &str, intensity: f32) -> ShaderPa
     ))
     .expect("a manifest");
     let shader = concat_effects::Shader::compile(&manifest, body).expect("compiles");
-    shader.pass(&BTreeMap::new(), &manifest.params, intensity, None, None), None
+    shader.pass(
+        &BTreeMap::new(),
+        &manifest.params,
+        intensity,
+        None,
+        None,
+        None,
+    )
 }
 
 /// The picture `picture`, `size` pixels, blurred by a Gaussian of `sigma`
@@ -1986,6 +2062,7 @@ fn a_motion_blur_is_a_gaussian_along_its_line() {
             .pass(
                 &BTreeMap::from([("length".to_owned(), length), ("angle".to_owned(), angle)]),
                 None,
+                None,
             )
             .expect("a shader");
         let got = treated(&mut gpu, size, &picture, &[pass]);
@@ -2056,6 +2133,7 @@ fn a_zoom_blur_is_its_scales_summed() {
                         ("y".to_owned(), centre.1),
                     ]),
                     None,
+                    None,
                 )
                 .expect("a shader");
             let got = treated(&mut gpu, size, &picture, &[pass]);
@@ -2095,7 +2173,11 @@ fn the_fisheye_fills_the_frame() {
         .get("concat.fisheye")
         .expect("a built-in");
     let pass = fisheye
-        .pass(&BTreeMap::from([("strength".to_owned(), 100.0)]), None, None)
+        .pass(
+            &BTreeMap::from([("strength".to_owned(), 100.0)]),
+            None,
+            None,
+        )
         .expect("a shader");
     for size in [(96, 54), (54, 96), (64, 64)] {
         let flat = vec![[0.3f32, 0.5, 0.7, 1.0]; (size.0 * size.1) as usize];
@@ -2287,6 +2369,7 @@ fn a_blurred_background_is_the_picture_covering_the_frame_blurred() {
         .backdrop(&Backdrop::Blur { sigma }, width, height, |radius| {
             blur.pass(
                 &BTreeMap::from([("radius".to_owned(), f64::from(radius))]),
+                None,
                 None,
             )
         })

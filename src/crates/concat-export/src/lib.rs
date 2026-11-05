@@ -36,7 +36,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use concat_core::SpeedCurve;
 use concat_core::animate::{Animation, Ease as AnimEase, Key as AnimKey, Track as AnimTrack};
 use concat_core::frame::{Frame, Signal};
-use concat_core::shader::{RevealMap, ShaderPass};
+use concat_core::shader::{RevealMap, ShaderPass, WordMap};
 use concat_core::time::{FrameRate, Rational};
 use concat_core::timeline::{Clip, ClipId, MediaRef, Timeline, Track, TrackKind, Transform};
 use concat_effects::Catalogue;
@@ -271,6 +271,11 @@ pub struct ExportClip {
     /// it back through `reveal_order()`.
     #[serde(skip)]
     pub reveal_map: Option<Arc<RevealMap>>,
+    /// A title's per-word times, baked at rasterize time and set by the
+    /// host, where a karaoke look reads which word is being spoken -
+    /// never by the wire format, like `reveal_map`.
+    #[serde(skip)]
+    pub word_map: Option<Arc<WordMap>>,
     /// What fills the frame behind the picture where it does not reach, as
     /// the flattener resolved it - the clip's own background or its
     /// timeline's, for a picture on the lowest picture lane; absent for
@@ -383,6 +388,7 @@ impl ExportClip {
             motion_dir: String::new(),
             highlighted: false,
             reveal_map: None,
+            word_map: None,
             backdrop: None,
         }
     }
@@ -1618,6 +1624,7 @@ fn render_picture(
         ranges,
         chains,
         reveal_maps,
+        word_maps,
         cutouts,
         stabilized,
         highlight: _,
@@ -1735,7 +1742,14 @@ fn render_picture(
                         layer,
                         frame,
                         tracks.get(&layer.clip).copied().unwrap_or(0),
-                        passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
+                        passes_at(
+                            &chains,
+                            &reveal_maps,
+                            &word_maps,
+                            &timeline,
+                            layer.clip,
+                            time,
+                        ),
                         geometry.get(&layer.clip),
                         shapes_at(&shapes, layer, time, rate),
                         stabilized.get(&layer.clip),
@@ -1804,7 +1818,14 @@ fn render_picture(
                         layer,
                         std::sync::Arc::new(frame),
                         tracks.get(&layer.clip).copied().unwrap_or(0),
-                        passes_at(&chains, &reveal_maps, &timeline, layer.clip, time),
+                        passes_at(
+                            &chains,
+                            &reveal_maps,
+                            &word_maps,
+                            &timeline,
+                            layer.clip,
+                            time,
+                        ),
                         geometry.get(&layer.clip),
                         shapes_at(&shapes, layer, time, rate),
                         stabilized.get(&layer.clip),
@@ -2127,6 +2148,7 @@ fn progress_due(index: i64, since: std::time::Duration) -> bool {
 fn passes_at(
     chains: &HashMap<ClipId, Vec<AppliedFilter>>,
     reveal_maps: &HashMap<ClipId, Arc<RevealMap>>,
+    word_maps: &HashMap<ClipId, Arc<WordMap>>,
     timeline: &Timeline,
     clip: ClipId,
     time: Rational,
@@ -2137,7 +2159,12 @@ fn passes_at(
     let at = timeline
         .clip(clip)
         .map_or(0.0, |engine_clip| engine_clip.fraction_at(time));
-    Catalogue::builtin().shader_passes_at(effects, at, reveal_maps.get(&clip).cloned(), None)
+    Catalogue::builtin().shader_passes_at(
+        effects,
+        at,
+        reveal_maps.get(&clip).cloned(),
+        word_maps.get(&clip).cloned(),
+    )
 }
 
 /// Only the shader clock moves. Planning, source decoding, animated effect
@@ -2589,6 +2616,7 @@ pub fn preview_sources_of(
         ranges: _,
         chains,
         reveal_maps,
+        word_maps,
         cutouts,
         stabilized,
         highlight,
@@ -2640,7 +2668,7 @@ pub fn preview_sources_of(
                     layer,
                     frame,
                     tracks.get(&layer.clip).copied().unwrap_or(0),
-                    passes_at(chains, reveal_maps, timeline, layer.clip, time),
+                    passes_at(chains, reveal_maps, word_maps, timeline, layer.clip, time),
                     geometry.get(&layer.clip),
                     shapes_at(shapes, layer, time, rate),
                     stabilized.get(&layer.clip),

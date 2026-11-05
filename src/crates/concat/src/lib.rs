@@ -470,6 +470,8 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
         editor.set_menu_items(ModelRc::from(models.menu.clone()));
         app.set_caption_models(ModelRc::from(models.caption_models.clone()));
         app.set_caption_languages(ModelRc::from(models.caption_languages.clone()));
+        app.set_caption_karaoke_themes(ModelRc::from(models.caption_karaoke_themes.clone()));
+        app.set_caption_words_per_line(ModelRc::from(models.caption_words_per_line.clone()));
         app.set_speech_models(ModelRc::from(models.speech_models.clone()));
         app.set_speech_model_details(ModelRc::from(models.speech_model_details.clone()));
         app.set_speech_voices(ModelRc::from(models.speakers.clone()));
@@ -1179,7 +1181,10 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     editor.on_clip_volume(on_lanes!(|state, id: SharedString, gain: f32| {
         state.clip_volume(&id, gain);
     }));
-    editor.on_clip_fade(on_lanes!(|state, id: SharedString, out: bool, seconds: f32| {
+    editor.on_clip_fade(on_lanes!(|state,
+                                   id: SharedString,
+                                   out: bool,
+                                   seconds: f32| {
         state.clip_fade(&id, out, seconds);
     }));
     editor.on_save_frame(on_window!(|state| {
@@ -2011,8 +2016,7 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
                 };
                 theme.set_playhead_choice(index);
                 let mut studio = shell.studio.borrow_mut();
-                studio.prefs.playhead =
-                    (index > 0).then(|| prefs::Preferences::accent_id(&name));
+                studio.prefs.playhead = (index > 0).then(|| prefs::Preferences::accent_id(&name));
                 studio.prefs.save(&studio.host.dirs);
             });
         }
@@ -2270,6 +2274,15 @@ fn start(project: Option<std::path::PathBuf>, smoke: bool) -> Result<(), slint::
     }));
     app.on_captions_size_changed(on_window!(|state, index: i32| {
         state.handle(Msg::Captions(CaptionsMsg::SizeChanged(index)));
+    }));
+    app.on_captions_karaoke_toggled(on_window!(|state, on: bool| {
+        state.handle(Msg::Captions(CaptionsMsg::KaraokeToggled(on)));
+    }));
+    app.on_captions_karaoke_theme_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::KaraokeThemeChanged(index)));
+    }));
+    app.on_captions_words_per_line_changed(on_window!(|state, index: i32| {
+        state.handle(Msg::Captions(CaptionsMsg::WordsPerLineChanged(index)));
     }));
     app.on_captions_begin(on_window!(|state| {
         state.handle(Msg::Captions(CaptionsMsg::Begin));

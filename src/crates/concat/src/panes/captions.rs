@@ -20,10 +20,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_project::Command;
-use concat_project::model::{ClipKind, TextStyle};
+use concat_project::model::{AppliedFilter, ClipKind, TextStyle, TextWord};
 use concat_project::srt;
 use concat_speech::JobStage;
-use concat_speech::transcribe::Segment;
+use concat_speech::transcribe::{Segment, WordSpan};
 
 use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
@@ -41,6 +41,77 @@ const CAPTION_SIZES: [f64; 3] = [0.04, 0.05, 0.065];
 /// A rough speaking rate, for a script's timing and the speech sheet's
 /// estimate.
 pub const CHARS_PER_SECOND: f32 = 14.0;
+
+/// Seconds a caption line holds past its last word, where the next line
+/// leaves room for it: the breath a highlight sits on before it moves.
+const TRAILING_PAD: f64 = 0.25;
+
+/// The karaoke looks, in the sheet's row order. Packed RGBA - what an
+/// effect's colour dials read - each from the engine the sheet's look
+/// came from: the box behind the word being spoken, the word on it, and
+/// the word highlighted where no box is drawn. The other words keep the
+/// title's own colour.
+const KARAOKE_THEMES: [(&str, &str, u32, u32, u32); 8] = [
+    (
+        "aqua",
+        "teal box, yellow word",
+        4278243512,
+        4294967040,
+        4294967040,
+    ),
+    (
+        "ember",
+        "burnt orange, warm cream",
+        4294921472,
+        4294963414,
+        4294921472,
+    ),
+    (
+        "lime",
+        "acid green, black word",
+        4290707200,
+        4278190080,
+        4290707200,
+    ),
+    (
+        "grape",
+        "violet box, white word",
+        4287254527,
+        4294967295,
+        4291405823,
+    ),
+    (
+        "emerald",
+        "emerald green, white word",
+        4280468830,
+        4294967295,
+        4289194176,
+    ),
+    (
+        "bubblegum",
+        "hot pink, white word",
+        4294913426,
+        4294967295,
+        4294913426,
+    ),
+    (
+        "mono",
+        "white box, grey words",
+        4294967295,
+        4278190080,
+        4294967295,
+    ),
+    (
+        "ink",
+        "black box, yellow word",
+        4278190080,
+        4294967040,
+        4294967040,
+    ),
+];
+
+/// How many words a karaoke line holds, by the sheet's row.
+const WORDS_PER_LINE: [usize; 5] = [2, 3, 4, 5, 6];
 
 /// Everything that can happen to the captions sheet.
 #[derive(Clone, Debug)]
@@ -62,6 +133,12 @@ pub enum CaptionsMsg {
     LanguageChanged(i32),
     PlacementChanged(i32),
     SizeChanged(i32),
+    /// The karaoke look: highlight the word being spoken, in a box.
+    KaraokeToggled(bool),
+    /// Row in the look list.
+    KaraokeThemeChanged(i32),
+    /// Row in the words-per-line list.
+    WordsPerLineChanged(i32),
     /// Run the pass the sheet describes.
     Begin,
     Cancel,
@@ -127,6 +204,15 @@ pub struct CaptionsPane {
     pub placement: usize,
     /// 0 small, 1 medium, 2 large.
     pub size: usize,
+    /// Highlight the word being spoken, and put a box behind it: the
+    /// look needs word times, so a transcription only. Remembered as
+    /// `Preferences::caption_karaoke`.
+    pub karaoke: bool,
+    /// Row in [`KARAOKE_THEMES`].
+    pub karaoke_theme: usize,
+    /// Row in [`WORDS_PER_LINE`]: how many words a caption line holds.
+    /// The engine's own default, three, is the second row.
+    pub words_per_line: usize,
     pub running: bool,
     /// How far the running transcription looks.
     pub pace: Pace,
@@ -187,6 +273,21 @@ impl CaptionsPane {
                 self.placement = (index.max(0) as usize).min(2);
             }
             CaptionsMsg::SizeChanged(index) => self.size = (index.max(0) as usize).min(2),
+            CaptionsMsg::KaraokeToggled(on) => {
+                self.karaoke = on;
+                studio.prefs.caption_karaoke = Some(on);
+                studio.prefs.save(&studio.host.dirs);
+            }
+            CaptionsMsg::KaraokeThemeChanged(index) => {
+                self.karaoke_theme = (index.max(0) as usize).min(KARAOKE_THEMES.len() - 1);
+                studio.prefs.caption_karaoke_theme = Some(self.karaoke_theme);
+                studio.prefs.save(&studio.host.dirs);
+            }
+            CaptionsMsg::WordsPerLineChanged(index) => {
+                self.words_per_line = (index.max(0) as usize).min(WORDS_PER_LINE.len() - 1);
+                studio.prefs.caption_words_per_line = Some(self.words_per_line);
+                studio.prefs.save(&studio.host.dirs);
+            }
             CaptionsMsg::Begin => {
                 if self.from_voice {
                     self.run_sound(studio);
@@ -214,21 +315,35 @@ impl CaptionsPane {
                         };
                         let look = subject.look;
                         let base = studio.prefs.title_style.clone();
-                        let commands: Vec<Command> = segments
-                            .into_iter()
-                            .filter_map(|segment| {
-                                let text = segment.text.trim().to_owned();
-                                (!text.is_empty()).then(|| {
-                                    caption_clip(
-                                        text,
-                                        subject.start + segment.start / subject.speed,
-                                        ((segment.end - segment.start) / subject.speed).max(0.2),
-                                        look,
-                                        base.as_ref(),
-                                    )
+                        let commands: Vec<Command> = if self.karaoke {
+                            karaoke_commands(
+                                &segments,
+                                &subject,
+                                look,
+                                base.as_ref(),
+                                self.karaoke_theme,
+                                WORDS_PER_LINE[self.words_per_line.min(WORDS_PER_LINE.len() - 1)],
+                            )
+                        } else {
+                            segments
+                                .iter()
+                                .filter_map(|segment| {
+                                    let text = segment.text.trim().to_owned();
+                                    (!text.is_empty()).then(|| {
+                                        caption_clip(
+                                            text,
+                                            subject.start + segment.start / subject.speed,
+                                            ((segment.end - segment.start) / subject.speed)
+                                                .max(0.2),
+                                            look,
+                                            base.as_ref(),
+                                            Vec::new(),
+                                            None,
+                                        )
+                                    })
                                 })
-                            })
-                            .collect();
+                                .collect()
+                        };
                         let count = commands.len();
                         self.open = false;
                         if count == 0 {
@@ -433,6 +548,9 @@ impl CaptionsPane {
                 .filter(|code| language_row(Some(code)) > 0),
             placement: 0,
             size: 1,
+            karaoke: studio.prefs.caption_karaoke.unwrap_or(false),
+            karaoke_theme: studio.prefs.caption_karaoke_theme.unwrap_or(0),
+            words_per_line: studio.prefs.caption_words_per_line.unwrap_or(1),
             timings: std::mem::take(&mut self.timings),
             ..CaptionsPane::default()
         };
@@ -474,7 +592,8 @@ impl CaptionsPane {
         let commands: Vec<Command> = lines
             .into_iter()
             .map(|(text, seconds)| {
-                let command = caption_clip(text, at, seconds, look, base.as_ref());
+                let command =
+                    caption_clip(text, at, seconds, look, base.as_ref(), Vec::new(), None);
                 at += seconds;
                 command
             })
@@ -620,6 +739,9 @@ impl CaptionsPane {
             language_fixed: english_only,
             placement: self.placement as i32,
             size: self.size as i32,
+            karaoke: self.karaoke,
+            karaoke_theme: self.karaoke_theme as i32,
+            words_per_line: self.words_per_line as i32,
             running: self.running,
             progress: self.pace.floor,
             ceiling: self.pace.ceiling,
@@ -639,6 +761,23 @@ impl CaptionsPane {
 
 /// English, as the language list names it.
 const ENGLISH: &str = "English";
+
+/// The karaoke looks' names, as the sheet's list reads them: the look's
+/// own name and its colours, the way the engine's gallery says them.
+pub fn karaoke_theme_names() -> Vec<slint::SharedString> {
+    KARAOKE_THEMES
+        .iter()
+        .map(|(name, blurb, ..)| format!("{name} - {blurb}").into())
+        .collect()
+}
+
+/// The words-per-line list, as the sheet reads it.
+pub fn words_per_line_names() -> Vec<slint::SharedString> {
+    WORDS_PER_LINE
+        .iter()
+        .map(|count| format!("{count} words").into())
+        .collect()
+}
 
 /// The language list's row for `code`: 0, "Auto-detect", for none and
 /// for a code the list does not have.
@@ -674,6 +813,8 @@ fn srt_commands(cues: Vec<srt::Cue>, look: (f64, f64), base: Option<&TextStyle>)
                 cue.end - cue.start,
                 look,
                 base,
+                Vec::new(),
+                None,
             )
         })
         .collect()
@@ -823,6 +964,8 @@ fn caption_clip(
     duration: f64,
     look: (f64, f64),
     base: Option<&TextStyle>,
+    words: Vec<TextWord>,
+    theme: Option<usize>,
 ) -> Command {
     let (offset_y, font_size) = look;
     // The kept look where there is one - family, weight, colours, stroke,
@@ -836,6 +979,7 @@ fn caption_clip(
             max_height: 0.0,
             // Runs are some words' looks, and these are other words.
             runs: Vec::new(),
+            words,
             ..base.clone()
         },
         None => TextStyle {
@@ -843,9 +987,24 @@ fn caption_clip(
             font_family: "Hanken Grotesk".to_owned(),
             font_size,
             font_weight: 600.0,
+            words,
             ..TextStyle::default()
         },
     };
+    // The look's own effect, in the theme's colours, landed with the clip
+    // so the batch carries the whole caption at once.
+    let effects = theme.map(|theme| {
+        let (_, _, badge, word_on, highlight) = KARAOKE_THEMES[theme.min(KARAOKE_THEMES.len() - 1)];
+        let mut karaoke = AppliedFilter::new("concat.karaoke");
+        karaoke.params.insert("badge".to_owned(), f64::from(badge));
+        karaoke
+            .params
+            .insert("badge_text".to_owned(), f64::from(word_on));
+        karaoke
+            .params
+            .insert("highlight".to_owned(), f64::from(highlight));
+        vec![karaoke]
+    });
     Command::AddTextClip {
         track_id: None,
         above: true,
@@ -853,7 +1012,102 @@ fn caption_clip(
         style: Some(style),
         duration: Some(duration),
         offset_y: Some(offset_y),
+        effects,
     }
+}
+
+/// Captions with the karaoke look: the transcription's words in lines of
+/// `per_line`, one title a line, carrying when each of its words is said
+/// in the clip's own seconds, and the [`KARAOKE_THEMES`] row `theme` as
+/// the look's colours. A line holds to its last word's end plus
+/// [`TRAILING_PAD`], drawn in where the next line starts first, so only
+/// one caption is ever on screen. A line's text is its words' own - what
+/// is highlighted is what is shown.
+fn karaoke_commands(
+    segments: &[Segment],
+    subject: &Subject,
+    look: (f64, f64),
+    base: Option<&TextStyle>,
+    theme: usize,
+    per_line: usize,
+) -> Vec<Command> {
+    // Every word said, on the timeline, in the order it was said.
+    let words: Vec<(f64, f64, String)> = segments
+        .iter()
+        .flat_map(|segment| {
+            segment.words.iter().filter_map(|word| {
+                let text = word.text.trim();
+                (!text.is_empty()).then(|| {
+                    (
+                        subject.start + word.start / subject.speed,
+                        subject.start + word.end / subject.speed,
+                        text.to_owned(),
+                    )
+                })
+            })
+        })
+        .collect();
+    if words.is_empty() {
+        // No word carries a time: the look has nothing to read, and the
+        // transcription is captions the plain way.
+        return segments
+            .iter()
+            .filter_map(|segment| {
+                let text = segment.text.trim().to_owned();
+                (!text.is_empty()).then(|| {
+                    caption_clip(
+                        text,
+                        subject.start + segment.start / subject.speed,
+                        ((segment.end - segment.start) / subject.speed).max(0.2),
+                        look,
+                        base,
+                        Vec::new(),
+                        None,
+                    )
+                })
+            })
+            .collect();
+    }
+    let mut lines: Vec<(f64, f64, Vec<(f64, f64, String)>)> = words
+        .chunks(per_line.max(1))
+        .map(|line| {
+            let start = line.first().map_or(0.0, |word| word.0);
+            let end = line.last().map_or(start, |word| word.1) + TRAILING_PAD;
+            (start, end, line.to_vec())
+        })
+        .collect();
+    // No line runs into the one after it.
+    for index in 0..lines.len().saturating_sub(1) {
+        let next = lines[index + 1].0;
+        lines[index].1 = lines[index].1.min(next);
+    }
+    lines
+        .iter()
+        .filter(|(_, end, _)| *end > 0.0)
+        .map(|(start, end, line)| {
+            let text = line
+                .iter()
+                .map(|(_, _, word)| word.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let words: Vec<TextWord> = line
+                .iter()
+                .map(|(word_start, word_end, _)| TextWord {
+                    start: word_start - start,
+                    end: word_end - start,
+                })
+                .collect();
+            caption_clip(
+                text,
+                *start,
+                (*end - *start).max(0.2),
+                look,
+                base,
+                words,
+                Some(theme),
+            )
+        })
+        .collect()
 }
 
 /// Longest a caption line gets before it is wrapped: about what two lines
@@ -947,7 +1201,127 @@ fn wrap_caption(sentence: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{script_captions, source_label};
+    use super::{script_captions, source_label, Command};
+
+    /// The karaoke look's lines: words grouped, each line's words timed in
+    /// the clip's own seconds, a line never running into the next.
+    #[test]
+    fn karaoke_lines_carry_their_words_and_hold_their_ends() {
+        let span = |words: &[(f64, f64, &str)]| super::Segment {
+            start: words.first().map_or(0.0, |word| word.0),
+            end: words.last().map_or(0.0, |word| word.1),
+            text: words
+                .iter()
+                .map(|(_, _, word)| *word)
+                .collect::<Vec<_>>()
+                .join(" "),
+            words: words
+                .iter()
+                .map(|(start, end, word)| super::WordSpan {
+                    start: *start,
+                    end: *end,
+                    text: (*word).to_owned(),
+                })
+                .collect(),
+        };
+        let subject = super::Subject {
+            start: 10.0,
+            speed: 1.0,
+            look: (0.35, 0.04),
+            model: "base".to_owned(),
+            windows: 30.0,
+        };
+        let segments = vec![span(&[
+            (0.0, 0.5, "satu"),
+            (0.5, 1.0, "dua"),
+            (1.0, 1.5, "tiga"),
+            (2.0, 2.5, "empat"),
+            (2.5, 3.0, "lima"),
+        ])];
+        let commands = super::karaoke_commands(
+            &segments,
+            &subject,
+            (0.35, 0.04),
+            None,
+            0,
+            3,
+        );
+        assert_eq!(commands.len(), 2, "five words in threes are two lines");
+        let Command::AddTextClip {
+            start: first_start,
+            duration: first_span,
+            style: first_style,
+            ..
+        } = &commands[0]
+        else {
+            panic!("a caption lands as a text clip");
+        };
+        let Command::AddTextClip {
+            start: second_start,
+            style: second_style,
+            ..
+        } = &commands[1]
+        else {
+            panic!("a caption lands as a text clip");
+        };
+        let first_style = first_style.as_ref().expect("a style");
+        let second_style = second_style.as_ref().expect("a style");
+        assert_eq!(first_style.content, "satu dua tiga");
+        assert_eq!(second_style.content, "empat lima");
+        // The first line holds to where the second begins: its last word
+        // ended at 11.5, the pad would put it at 11.75, the next line
+        // starts at 12.0, so the pad stands.
+        assert!((*first_start - 10.0).abs() < 1e-9);
+        assert!(
+            (first_span.expect("a span") - 1.75).abs() < 1e-9,
+            "{first_span:?}"
+        );
+        assert!((second_start - 12.0).abs() < 1e-9);
+        // Each word's time, in the clip's own seconds.
+        let said: Vec<(f64, f64)> = first_style
+            .words
+            .iter()
+            .map(|word| (word.start, word.end))
+            .collect();
+        assert!(
+            said.iter()
+                .zip([(0.0, 0.5), (0.5, 1.0), (1.0, 1.5)])
+                .all(|((got_s, got_e), (want_s, want_e))| {
+                    (got_s - want_s).abs() < 1e-9 && (got_e - want_e).abs() < 1e-9
+                }),
+            "{said:?}"
+        );
+        // And the look's own effect rides the clip.
+        assert!(second_style.words.len() == 2);
+    }
+
+    /// A transcription whose words carry no times reads as captions the
+    /// plain way, one a segment, rather than dropping them.
+    #[test]
+    fn karaoke_without_word_times_falls_back_to_plain_captions() {
+        let subject = super::Subject {
+            start: 0.0,
+            speed: 1.0,
+            look: (0.35, 0.04),
+            model: "base".to_owned(),
+            windows: 30.0,
+        };
+        let segments = vec![super::Segment {
+            start: 0.0,
+            end: 1.0,
+            text: "satu dua".to_owned(),
+            words: Vec::new(),
+        }];
+        let commands =
+            super::karaoke_commands(&segments, &subject, (0.35, 0.04), None, 0, 3);
+        assert_eq!(commands.len(), 1);
+        let Command::AddTextClip { style, .. } = &commands[0] else {
+            panic!("a caption lands as a text clip");
+        };
+        let style = style.as_ref().expect("a style");
+        assert_eq!(style.content, "satu dua");
+        assert!(style.words.is_empty());
+    }
 
     #[test]
     fn imported_srt_preserves_short_cues_and_multiline_text() {

@@ -450,7 +450,8 @@ mod tests {
             "{errors:?}"
         );
         assert!(errors[1].contains("format 1"), "{errors:?}");
-        let passes = catalogue.shader_passes(&[applied("alice.tint", &[("hue", 45.0)])], None, None);
+        let passes =
+            catalogue.shader_passes(&[applied("alice.tint", &[("hue", 45.0)])], None, None);
         assert_eq!(passes.len(), 1);
         assert_eq!(passes[0].values.get("hue"), Some(&45.0));
         let _ = std::fs::remove_dir_all(&dir);

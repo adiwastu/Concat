@@ -1275,7 +1275,9 @@ fn detect_language(
         if sum.is_empty() {
             sum = odds;
         } else {
-            sum.iter_mut().zip(odds).for_each(|(sum, odds)| *sum += odds);
+            sum.iter_mut()
+                .zip(odds)
+                .for_each(|(sum, odds)| *sum += odds);
         }
         probes += 1;
     }
@@ -1295,8 +1297,12 @@ fn detect_language(
         name(ranked[2].0),
         ranked[2].1,
     );
-    whisper_rs::get_lang_str(ranked[0].0)
-        .ok_or_else(|| format!("whisper heard language {}, which it cannot name", ranked[0].0))
+    whisper_rs::get_lang_str(ranked[0].0).ok_or_else(|| {
+        format!(
+            "whisper heard language {}, which it cannot name",
+            ranked[0].0
+        )
+    })
 }
 
 /// A line whisper made up of silence: one from a window it took for
@@ -1475,7 +1481,15 @@ mod tests {
         assert!(keep_segment(3.0, 4.0, "[BLANK_AUDIO]".to_owned(), Vec::new()).is_none());
         assert!(keep_segment(3.0, 4.0, "(musik)".to_owned(), Vec::new()).is_none());
         assert!(keep_segment(3.0, 4.0, "♪ ♪".to_owned(), Vec::new()).is_none());
-        assert!(keep_segment(3.0, 4.0, "Lalu (sambil tertawa) pergi.".to_owned(), Vec::new()).is_some());
+        assert!(
+            keep_segment(
+                3.0,
+                4.0,
+                "Lalu (sambil tertawa) pergi.".to_owned(),
+                Vec::new()
+            )
+            .is_some()
+        );
         assert!(keep_segment(3.0, 4.0, String::new(), Vec::new()).is_none());
     }
 
@@ -1486,13 +1500,15 @@ mod tests {
             end,
             text: text.to_owned(),
         };
-        // Out of order, overlapping, and degenerate; the word past the
-        // line's span belongs to no caption and is left out whole.
+        // Out of order, overlapping, and degenerate: a word that runs
+        // backwards - dua ends before it starts - or runs no time - nol -
+        // is left out whole, and a word's end is drawn in to the next
+        // word's start where it ran past it.
         let words = normalize_words(vec![
-            span(4.0, 3.6, "dua"),
             span(5.0, 9.0, "tiga"),
-            span(3.0, 3.9, "satu"),
+            span(3.0, 5.4, "satu"),
             span(2.0, 2.5, "dulu"),
+            span(4.0, 3.6, "dua"),
             span(6.0, 6.0, "nol"),
         ]);
         let said: Vec<(&str, f64, f64)> = words
@@ -1501,7 +1517,7 @@ mod tests {
             .collect();
         assert_eq!(
             said,
-            [("satu", 3.0, 3.6), ("dua", 3.6, 4.0), ("tiga", 4.0, 5.0)]
+            [("dulu", 2.0, 2.5), ("satu", 3.0, 5.0), ("tiga", 5.0, 9.0)]
         );
     }
 

@@ -22,12 +22,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use concat_core::frame::Frame;
-use concat_core::shader::RevealMap;
+use concat_core::shader::{RevealMap, WordMap};
 
 use concat_export::flatten::export_base;
 use concat_export::{ClipKind, ExportClip};
 use concat_project::model::{
     ClipKind as ModelClipKind, KeyProperty, Project, ShapeKind, ShapeStyle, TextAlign, TextStyle,
+    TextWord,
 };
 use concat_text::{Align, Figure, Fonts, TitleRun, TitleStyle, WordRect};
 
@@ -73,6 +74,12 @@ struct Art {
     /// The title's per-word reveal order, baked once here rather than on
     /// every clip build - see `concat_core::RevealMap`.
     reveal: Arc<RevealMap>,
+    /// The boxes the layout left the words in, canvas pixels, reading
+    /// order: what a karaoke look's word map is baked from, against the
+    /// word times the clip's style carries. The reveal map is a byproduct
+    /// of these; they are kept because the times - and so the map - are
+    /// the clip's, not the painting's.
+    words: Arc<[(i32, i32, u32, u32)]>,
 }
 
 /// The title painter and its cache.
@@ -326,6 +333,17 @@ impl Titles {
                         Painting::Title(_) => Some(Arc::clone(&art.reveal)),
                         Painting::Shape(_) => None,
                     },
+                    // A karaoke look's map, where the title's words carry
+                    // when each was said: baked here, against the clip's
+                    // own length, since the painting is shared by every
+                    // clip of its style and a fraction of the clip is what
+                    // the shader reads the times as.
+                    word_map: match painting {
+                        Painting::Title(text) => {
+                            word_map_of(&art.words, &text.words, clip.duration, art.canvas)
+                        }
+                        Painting::Shape(_) => None,
+                    },
                     ..ExportClip::blank(ClipKind::Image, clip.start, clip.duration, index)
                 },
                 block: art.block,
@@ -368,6 +386,7 @@ impl Titles {
             offset: (rendered.block_dx, rendered.block_dy),
             canvas: (rendered.width, rendered.height),
             reveal: reveal_of(&rendered.words, rendered.width, rendered.height),
+            words: rects_of(&rendered.words).into(),
         };
         let frame = Arc::new(
             Frame::from_rgba(rendered.width, rendered.height, rendered.rgba)
@@ -431,6 +450,7 @@ impl Titles {
             offset: (rendered.block_dx, rendered.block_dy),
             canvas: (rendered.width, rendered.height),
             reveal: reveal_of(&rendered.words, rendered.width, rendered.height),
+            words: rects_of(&rendered.words).into(),
         };
         let words: Vec<String> = rendered
             .words
@@ -580,6 +600,7 @@ fn read_block(side: &Path, width: u32, height: u32) -> Option<Art> {
         offset: (offset("x"), offset("y")),
         canvas,
         reveal: Arc::new(RevealMap::from_rects(canvas.0, canvas.1, &rects)),
+        words: rects.clone().into(),
     })
 }
 
@@ -599,6 +620,39 @@ fn reveal_of(words: &[WordRect], width: u32, height: u32) -> Arc<RevealMap> {
         .map(|w| (w.x, w.y, w.width, w.height))
         .collect();
     Arc::new(RevealMap::from_rects(width, height, &rects))
+}
+
+/// The layout's word boxes in canvas pixels, reading order.
+fn rects_of(words: &[WordRect]) -> Vec<(i32, i32, u32, u32)> {
+    words
+        .iter()
+        .map(|w| (w.x, w.y, w.width, w.height))
+        .collect()
+}
+
+/// A karaoke look's word map for one title clip: the painting's word
+/// boxes timed by the style's words - when each is spoken, as a fraction
+/// of the clip - and the map only where the two agree. A caption whose
+/// words were edited after the times were made, or whose style carries no
+/// times at all, has no map: the look reads no word anywhere, and the
+/// title comes out as painted. `None` too for a clip that runs no time.
+fn word_map_of(
+    rects: &[(i32, i32, u32, u32)],
+    words: &[TextWord],
+    duration: f64,
+    canvas: (u32, u32),
+) -> Option<Arc<WordMap>> {
+    if duration <= 0.0 || rects.is_empty() || rects.len() != words.len() {
+        return None;
+    }
+    let timed: Vec<((i32, i32, u32, u32), f64, f64)> = rects
+        .iter()
+        .zip(words)
+        .map(|(rect, word)| (*rect, word.start / duration, word.end / duration))
+        .collect();
+    Some(Arc::new(WordMap::from_timed_rects(
+        canvas.0, canvas.1, &timed,
+    )))
 }
 
 /// The document's style, field for field, in the painter's terms.
@@ -698,6 +752,7 @@ mod tests {
                 style: None,
                 duration: Some(3.0),
                 offset_y: None,
+                effects: None,
             })
             .expect("a title is added")
             .created_id
@@ -746,6 +801,7 @@ mod tests {
                 style: None,
                 duration: Some(2.0),
                 offset_y: Some(0.3),
+                effects: None,
             })
             .expect("a title is added")
             .created_id
@@ -797,6 +853,7 @@ mod tests {
                 }),
                 duration: Some(3.0),
                 offset_y: None,
+                effects: None,
             })
             .expect("a title is added")
             .created_id
@@ -851,6 +908,7 @@ mod tests {
                 style: None,
                 duration: Some(3.0),
                 offset_y: Some(0.3),
+                effects: None,
             })
             .expect("a title is added")
             .created_id
@@ -945,6 +1003,7 @@ mod tests {
                 style: Some(style),
                 duration: Some(3.0),
                 offset_y: None,
+                effects: None,
             })
             .expect("a title is added");
 
@@ -1034,6 +1093,7 @@ mod tests {
             offset: (0, 0),
             canvas: (4, 4),
             reveal: Arc::new(RevealMap::from_rects(1, 1, &[])),
+            words: Arc::from([] as [(i32, i32, u32, u32); 0]),
         };
         let frame = || Arc::new(Frame::transparent(4, 4));
         let size = frame().pixels().len();

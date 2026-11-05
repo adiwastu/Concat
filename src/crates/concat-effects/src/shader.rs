@@ -104,9 +104,22 @@ fn reveal_order(uv: vec2<f32>) -> f32 {
 /// word was - so a package built on them is a no-op off a title with no
 /// special casing. The badge mask rides in z: 1 fully inside the word's
 /// rounded box, fading across its corners.
+///
+/// Read with `textureLoad`, not a sample: the map is baked at the layer's
+/// own size, so the pixel under `uv` is the pixel to read, and a mask
+/// wants its corners sharp rather than filtered. (A sampled read of the
+/// map came back with channels routed wrong on Direct3D - the load reads
+/// the texel that is actually there.)
 fn word_at(uv: vec2<f32>) -> vec3<f32> {
-    let word = textureSampleLevel(word_texture, word_sampler, uv, 0.0);
-    return vec3<f32>((word.r - 1.0) / 253.0, (word.g - 1.0) / 253.0, word.b);
+    let at = vec2<i32>(clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)) * frame.size);
+    let word = textureLoad(word_texture, at, 0);
+    // The texture hands each byte back as a fraction of 255; the encoding
+    // was a byte per channel, so it comes off the byte, not the fraction.
+    return vec3<f32>(
+        (word.r * 255.0 - 1.0) / 253.0,
+        (word.g * 255.0 - 1.0) / 253.0,
+        word.b,
+    );
 }
 "#;
 

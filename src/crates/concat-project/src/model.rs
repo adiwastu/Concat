@@ -1737,7 +1737,8 @@ impl TextStyle {
     /// spoken - each word's end trimmed to the next start, and words that
     /// run no time or run past a negative start left out.
     fn tidy_words(&mut self) {
-        self.words.retain(|word| word.end > word.start && word.start.is_finite());
+        self.words
+            .retain(|word| word.end > word.start && word.start.is_finite());
         self.words.sort_by(|a, b| a.start.total_cmp(&b.start));
         let mut kept: Vec<TextWord> = Vec::with_capacity(self.words.len());
         for word in self.words.drain(..) {
@@ -2721,7 +2722,11 @@ pub struct VideoSettings {
     /// exported in a format that keeps alpha; a format that does not
     /// gets black there. Left out of the document while it is opaque
     /// black, so those documents stay as they were.
-    #[serde(default = "opaque_black", skip_serializing_if = "is_black", with = "hex_rgba")]
+    #[serde(
+        default = "opaque_black",
+        skip_serializing_if = "is_black",
+        with = "hex_rgba"
+    )]
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub canvas: [u8; 4],
 }

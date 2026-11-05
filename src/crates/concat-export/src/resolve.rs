@@ -165,6 +165,9 @@ pub(crate) struct BuiltTimeline {
     /// carried beside `chains` rather than inside it, since it is baked
     /// once by the host and never resolved per frame the way effects are.
     pub(crate) reveal_maps: HashMap<ClipId, Arc<RevealMap>>,
+    /// The same, for a karaoke look: a title's per-word times, where the
+    /// shader reads which word is being spoken.
+    pub(crate) word_maps: HashMap<ClipId, Arc<WordMap>>,
     /// The clip whose cutout is drawn tinted rather than cut, if one is.
     pub(crate) highlight: Option<ClipId>,
     /// The layers: treatments over the stack, by span.
@@ -281,6 +284,7 @@ pub(crate) fn build_timeline(
     let mut ranges: HashMap<ClipId, concat_media::ColorRange> = HashMap::new();
     let mut chains: HashMap<ClipId, Vec<AppliedFilter>> = HashMap::new();
     let mut reveal_maps: HashMap<ClipId, Arc<RevealMap>> = HashMap::new();
+    let mut word_maps: HashMap<ClipId, Arc<WordMap>> = HashMap::new();
     let mut cutouts: HashMap<ClipId, CutoutJob> = HashMap::new();
     let mut backdrops: HashMap<ClipId, crate::ExportBackdrop> = HashMap::new();
     let mut stabilized: HashMap<ClipId, StabilizeJob> = HashMap::new();
@@ -402,6 +406,9 @@ pub(crate) fn build_timeline(
             if let Some(map) = &clip.reveal_map {
                 reveal_maps.insert(id, Arc::clone(map));
             }
+            if let Some(map) = &clip.word_map {
+                word_maps.insert(id, Arc::clone(map));
+            }
             if let Some(job) = CutoutJob::of(clip, planned.is_none()) {
                 cutouts.insert(id, job);
             }
@@ -426,6 +433,7 @@ pub(crate) fn build_timeline(
         ranges,
         chains,
         reveal_maps,
+        word_maps,
         cutouts,
         stabilized,
         highlight,

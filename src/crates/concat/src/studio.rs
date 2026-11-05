@@ -767,6 +767,10 @@ pub struct Models {
     pub caption_models: Rc<VecModel<SharedString>>,
     /// The captions sheet's languages; see `CaptionsPane::language_rows`.
     pub caption_languages: Rc<VecModel<SharedString>>,
+    /// The captions sheet's karaoke looks; see `karaoke_theme_names`.
+    pub caption_karaoke_themes: Rc<VecModel<SharedString>>,
+    /// The captions sheet's words-a-line list; see `words_per_line_names`.
+    pub caption_words_per_line: Rc<VecModel<SharedString>>,
     pub speech_models: Rc<VecModel<SharedString>>,
     pub speech_model_details: Rc<VecModel<SharedString>>,
     pub speakers: Rc<VecModel<SharedString>>,
@@ -850,6 +854,8 @@ impl Models {
             bar: Rc::new(VecModel::default()),
             caption_models: Rc::new(VecModel::default()),
             caption_languages: Rc::new(VecModel::default()),
+            caption_karaoke_themes: Rc::new(VecModel::default()),
+            caption_words_per_line: Rc::new(VecModel::default()),
             speech_models: Rc::new(VecModel::default()),
             speech_model_details: Rc::new(VecModel::default()),
             speakers: Rc::new(VecModel::default()),
@@ -4324,6 +4330,7 @@ impl Studio {
             duration: Some(duration),
             offset_y,
             above: true,
+            effects: None,
         };
         match font {
             Some((family, path)) => self.apply(Command::Batch {
@@ -8996,6 +9003,7 @@ impl Studio {
                 style: source.text.clone(),
                 duration: Some(source.duration),
                 offset_y: Some(source.offset_y),
+                effects: None,
             }),
             model::ClipKind::Shape => Some(Command::AddShapeClip {
                 above: false,
@@ -12174,6 +12182,14 @@ impl Studio {
                 .collect(),
         );
         sync(&models.caption_languages, self.captions.language_rows(self));
+        sync(
+            &models.caption_karaoke_themes,
+            crate::panes::captions::karaoke_theme_names(),
+        );
+        sync(
+            &models.caption_words_per_line,
+            crate::panes::captions::words_per_line_names(),
+        );
         app.set_captions(self.captions.data(self));
         let voices = installed(&self.settings.voices);
         sync(

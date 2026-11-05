@@ -582,7 +582,11 @@ impl Package {
     }
 
     /// The link `replaced`'s knobs make of `link`; see `replacing`.
-    fn carried_over(&self, replaced: &crate::manifest::Replaces, link: &AppliedFilter) -> AppliedFilter {
+    fn carried_over(
+        &self,
+        replaced: &crate::manifest::Replaces,
+        link: &AppliedFilter,
+    ) -> AppliedFilter {
         let old: BTreeMap<String, Value> = replaced
             .defaults
             .iter()
@@ -1211,7 +1215,12 @@ impl Catalogue {
         reveal_map: Option<Arc<RevealMap>>,
         word_map: Option<Arc<WordMap>>,
     ) -> Vec<ShaderPass> {
-        self.passes_with(effects, |applied| applied.params.clone(), reveal_map, word_map)
+        self.passes_with(
+            effects,
+            |applied| applied.params.clone(),
+            reveal_map,
+            word_map,
+        )
     }
 
     /// The same passes at one instant of the clip, `at` in `0..=1`: a
@@ -1224,7 +1233,12 @@ impl Catalogue {
         reveal_map: Option<Arc<RevealMap>>,
         word_map: Option<Arc<WordMap>>,
     ) -> Vec<ShaderPass> {
-        self.passes_with(effects, |applied| applied.params_at(at), reveal_map, word_map)
+        self.passes_with(
+            effects,
+            |applied| applied.params_at(at),
+            reveal_map,
+            word_map,
+        )
     }
 
     /// The two-input pass for a transition package at `progress` in `0..=1`,

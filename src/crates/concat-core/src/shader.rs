@@ -334,6 +334,13 @@ impl WordMap {
         height: u32,
         rects: &[((i32, i32, u32, u32), f64, f64)],
     ) -> WordMap {
+        // The rows padded so a stride is a whole 256 bytes, the pitch a
+        // GPU copy asks for: a map uploaded row-tight came back with its
+        // channels routed wrong on Direct3D, and the padding columns are
+        // texels past the canvas's edge, which nothing reads - the shader
+        // loads at the canvas's own coordinates, and the texel at
+        // `(x, y)` is where it was baked whatever the stride.
+        let width = width.div_ceil(64) * 64;
         let mut rgba = vec![0u8; width as usize * height as usize * 4];
         let words = rects.len() as f64;
         for (index, &((x, y, w, h), start, end)) in rects.iter().enumerate() {

@@ -53,6 +53,13 @@ pub struct Preferences {
     /// whisper's code ("id", "de", ...). `None` is whisper's to hear, and
     /// so is a code whisper no longer knows.
     pub caption_language: Option<String>,
+    /// The captions sheet's karaoke look - highlight the word being
+    /// spoken, in a box - as it was last left.
+    pub caption_karaoke: Option<bool>,
+    /// Which karaoke look, by the sheet's row.
+    pub caption_karaoke_theme: Option<usize>,
+    /// How many words a karaoke line holds, by the sheet's row.
+    pub caption_words_per_line: Option<usize>,
     /// The chosen speech model id.
     pub tts_model: Option<String>,
     /// The chosen voice id.

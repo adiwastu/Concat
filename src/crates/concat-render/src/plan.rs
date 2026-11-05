@@ -243,6 +243,11 @@ pub struct PlannedLayer {
     /// so a one-shot look can size itself to however long the clip has
     /// been on screen instead of the timeline's absolute clock.
     pub clip_start: Rational,
+    /// How long the layer's own clip runs, on the timeline: what
+    /// `frame.clip_time` counts up to, for a look that needs the fraction
+    /// of the clip a moment is - a karaoke highlight over a title's words,
+    /// say. Zero for a layer with no clip of its own behind it.
+    pub clip_duration: Rational,
     /// The track the layer sits on, bottom-most zero: every layer on a
     /// lower track is under it, and a treatment names the track it sits
     /// above.
@@ -310,6 +315,7 @@ impl PlannedLayer {
         PlannedLayer {
             clip,
             clip_start: Rational::ZERO,
+            clip_duration: Rational::ZERO,
             track: 0,
             media: PathBuf::new(),
             source_time: Rational::ZERO,
@@ -838,6 +844,7 @@ pub fn plan_frame(timeline: &Timeline, time: Rational) -> FramePlan {
         layers.push(PlannedLayer {
             clip: clip_id,
             clip_start: clip.start,
+            clip_duration: clip.duration,
             track,
             media: clip.media.path.clone(),
             source_time,

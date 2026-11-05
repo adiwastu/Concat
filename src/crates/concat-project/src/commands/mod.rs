@@ -372,6 +372,12 @@ pub enum Command {
         /// SetClipTransform. Lower thirds are made of this.
         #[serde(default)]
         offset_y: Option<f64>,
+        /// Effects the clip starts with, replacing its none. Here so a
+        /// caption run can land its look in the same batch instead of
+        /// effect-after-add per clip - a batch cannot reach a clip whose
+        /// id it cannot know yet.
+        #[serde(default)]
+        effects: Option<Vec<AppliedFilter>>,
     },
     /// Places a shape: a clip with no media behind it that draws one
     /// figure over the picture, minting a "c" id. Lands the way a title

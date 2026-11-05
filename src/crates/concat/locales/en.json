@@ -947,5 +947,8 @@
   "voices.styles": "Styles",
   "voices.stylesHint": "A style is a voice with effects on it. Pick one to write in it: the effects go on the speech clip, where you can change them.",
   "voices.voices": "Voices",
-  "voices.yours": "Your voices"
+  "voices.yours": "Your voices",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Look",
+  "captions.wordsPerLine": "Words a line"
 }

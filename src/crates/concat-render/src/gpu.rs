@@ -34,7 +34,7 @@ use std::collections::HashMap;
 
 use concat_core::frame::Frame;
 use concat_core::mask::MaskUniform;
-use concat_core::shader::{Lut, RevealMap, ShaderPass, TransitionPass};
+use concat_core::shader::{Lut, RevealMap, ShaderPass, TransitionPass, WordMap};
 use concat_core::timeline::Blend;
 
 use crate::compositor::Compositor;
@@ -1088,10 +1088,12 @@ impl WgpuCompositor {
                 },
             ],
         });
-        // Group 3: a title's reveal map. Every pass binds one - a map that
-        // reveals everything when the package has none, or the pass is not
-        // over a title at all - so the same pipeline layout serves every
-        // shader pass whether or not it reads `reveal_order()`.
+        // Group 3: a title's reveal map, and its word map beside it. Every
+        // pass binds one of each - a map that reveals everything and one
+        // that says no word anywhere when the package has neither, or the
+        // pass is not over a title at all - so the same pipeline layout
+        // serves every shader pass whether or not it reads
+        // `reveal_order()` or `word_at()`.
         let reveal_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("concat pass reveal map"),
             entries: &[
@@ -1107,6 +1109,22 @@ impl WgpuCompositor {
                 },
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
@@ -1566,7 +1584,8 @@ impl WgpuCompositor {
             // whatever stack sits beneath it - so `clip_time` falls back
             // to the timeline's own clock, exactly what a package read
             // before this existed.
-            let treated = self.run_passes(width, height, below, &treatment.effects, seconds, 0.0);
+            let treated =
+                self.run_passes(width, height, below, &treatment.effects, seconds, 0.0, 0.0);
             ground = Some(if strength >= 1.0 {
                 treated
             } else {
@@ -1611,6 +1630,7 @@ impl WgpuCompositor {
         let geometry = layer.geometry(source, plan.width, plan.height);
         let seconds = plan.seconds();
         let clip_start = layer.clip_start.as_f64() as f32;
+        let clip_duration = layer.clip_duration.as_f64() as f32;
         let (size, texture, uvs, flips) = if layer.needs_preparing(&geometry) {
             let uploaded = self.upload(source);
             let made = self.make_picture(
@@ -1627,6 +1647,7 @@ impl WgpuCompositor {
                 &layer.effects,
                 seconds,
                 clip_start,
+                clip_duration,
             );
             (
                 geometry.fitted,
@@ -1644,6 +1665,7 @@ impl WgpuCompositor {
                     &layer.effects,
                     seconds,
                     clip_start,
+                    clip_duration,
                 );
             }
             (
@@ -1926,7 +1948,7 @@ impl WgpuCompositor {
         self.used.values_mut().for_each(|used| *used = 0);
         self.composites += 1;
         let source = self.filled(side, colour);
-        let drawn = self.run_passes(side, side, source, passes, seconds, seconds);
+        let drawn = self.run_passes(side, side, source, passes, seconds, seconds, 0.0);
         self.middle_of(side, drawn)
     }
 
@@ -3128,16 +3150,27 @@ impl WgpuCompositor {
         lut.id
     }
 
-    /// The bind group for a title's reveal map, uploaded the first time its
-    /// id is seen, and the identity's - reveals everything - for a pass
-    /// without one. Mirrors [`WgpuCompositor::lut_group`]. Returns the id
-    /// the group is filed under.
-    fn reveal_group(&mut self, reveal: Option<&RevealMap>) -> u64 {
-        static IDENTITY: std::sync::OnceLock<RevealMap> = std::sync::OnceLock::new();
-        let reveal = reveal.unwrap_or_else(|| IDENTITY.get_or_init(RevealMap::identity));
-        self.reveals_drawn.insert(reveal.id, self.composites);
-        if self.reveals.contains_key(&reveal.id) {
-            return reveal.id;
+    /// One map pair filed under one id: the reveal map's id and the word
+    /// map's, mixed so the pair reads as one key and either half still
+    /// lands on its own bit range.
+    fn map_pair(reveal: &RevealMap, word: &WordMap) -> u64 {
+        reveal.id ^ word.id.rotate_left(32)
+    }
+
+    /// The bind group for a title's reveal map and its word map, both
+    /// uploaded the first time their pair is seen, and the identities' -
+    /// reveals everything, no word anywhere - for a pass without either.
+    /// Mirrors [`WgpuCompositor::lut_group`]. Returns the id the group is
+    /// filed under.
+    fn word_group(&mut self, reveal: Option<&RevealMap>, word: Option<&WordMap>) -> u64 {
+        static REVEAL_IDENTITY: std::sync::OnceLock<RevealMap> = std::sync::OnceLock::new();
+        static WORD_IDENTITY: std::sync::OnceLock<WordMap> = std::sync::OnceLock::new();
+        let reveal = reveal.unwrap_or_else(|| REVEAL_IDENTITY.get_or_init(RevealMap::identity));
+        let word = word.unwrap_or_else(|| WORD_IDENTITY.get_or_init(WordMap::identity));
+        let key = Self::map_pair(reveal, word);
+        self.reveals_drawn.insert(key, self.composites);
+        if self.reveals.contains_key(&key) {
+            return key;
         }
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("concat reveal map"),
@@ -3173,6 +3206,50 @@ impl WgpuCompositor {
             },
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // The word map beside it, a pixel a byte in each of four channels.
+        let word_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("concat word map"),
+            size: wgpu::Extent3d {
+                width: word.width,
+                height: word.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &word_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &word.rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(word.width * 4),
+                rows_per_image: Some(word.height),
+            },
+            wgpu::Extent3d {
+                width: word.width,
+                height: word.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let word_view = word_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // DIAGNOSTIC: a sampler of the word map's own.
+        let word_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("concat word sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
         let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("concat reveal map"),
             layout: &self.reveal_layout,
@@ -3185,10 +3262,18 @@ impl WgpuCompositor {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&self.sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&word_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&word_sampler),
+                },
             ],
         });
-        self.reveals.insert(reveal.id, bind_group);
-        reveal.id
+        self.reveals.insert(key, bind_group);
+        key
     }
 
     /// Runs `passes` over the pooled texture `source` of `width` × `height`,
@@ -3214,6 +3299,7 @@ impl WgpuCompositor {
         passes: &[ShaderPass],
         time: f32,
         clip_start: f32,
+        clip_duration: f32,
     ) -> usize {
         let mut current = source;
         let mut turns: [Option<usize>; 2] = [None, None];
@@ -3232,7 +3318,7 @@ impl WgpuCompositor {
             };
             self.shader(pass);
             let lut_id = self.lut_group(pass.lut.as_deref());
-            let reveal_id = self.reveal_group(pass.reveal_map.as_deref());
+            let reveal_id = self.word_group(pass.reveal_map.as_deref(), pass.word_map.as_deref());
             // A pass the driver refused leaves the picture as it was.
             if !self.shaders.contains_key(&pass.key) {
                 continue;
@@ -3243,6 +3329,7 @@ impl WgpuCompositor {
                     (current, target),
                     pass,
                     [time, time - clip_start],
+                    clip_duration,
                     (lut_id, reveal_id),
                     &mut spare,
                 );
@@ -3259,7 +3346,7 @@ impl WgpuCompositor {
                 time,
                 pass.intensity,
                 time - clip_start,
-                0.0,
+                clip_duration,
             ];
             let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
             self.queue.write_buffer(&shader.frame, 0, &frame_bytes);
@@ -3313,15 +3400,16 @@ impl WgpuCompositor {
     /// of its size is free, else claimed - then the last pass into `into`,
     /// all in one submission. Every pass binds the layer and the pictures
     /// drawn before it, a blank for the rest, its own among them. `time` is
-    /// the timeline's seconds and `clip_time` the clip's; `lut_id` and
-    /// `reveal_id` name the tables every pass binds. The pictures go back
-    /// to `spare` for the next package.
+    /// the timeline's seconds and `clip_time` the clip's, `clip_duration`
+    /// the clip's length; `lut_id` and `reveal_id` name the tables every
+    /// pass binds. The pictures go back to `spare` for the next package.
     fn run_stages(
         &mut self,
         (width, height): (u32, u32),
         (layer, into): (usize, usize),
         pass: &ShaderPass,
         [time, clip_time]: [f32; 2],
+        clip_duration: f32,
         (lut_id, reveal_id): (u64, u64),
         spare: &mut HashMap<(u32, u32), Vec<usize>>,
     ) {
@@ -3347,7 +3435,7 @@ impl WgpuCompositor {
             time,
             pass.intensity,
             clip_time,
-            0.0,
+            clip_duration,
         ];
         let frame_bytes: Vec<u8> = frame_block.iter().flat_map(|v| v.to_le_bytes()).collect();
         self.queue.write_buffer(&shader.frame, 0, &frame_bytes);

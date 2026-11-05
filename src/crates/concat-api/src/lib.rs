@@ -689,7 +689,9 @@ impl Api {
             None if hdr => export::VideoCodec::Hevc,
             None => export::VideoCodec::H264,
             Some(name) => export::VideoCodec::parse(name).ok_or_else(|| {
-                ApiError::invalid(format!("unknown codec {name:?}: h264, hevc, av1, prores-4444 or vp9-alpha"))
+                ApiError::invalid(format!(
+                    "unknown codec {name:?}: h264, hevc, av1, prores-4444 or vp9-alpha"
+                ))
             })?,
         };
         if hdr && codec == export::VideoCodec::H264 {
@@ -1294,6 +1296,7 @@ mod tests {
                     style: None,
                     duration: None,
                     offset_y: None,
+                    effects: None,
                 }),
             }
         );
@@ -1492,6 +1495,7 @@ mod tests {
                 style: None,
                 duration: Some(3.0),
                 offset_y: None,
+                effects: None,
             }),
         }));
         let undone = view(ok(api.dispatch(Request::EditUndo { path: path.clone() })));

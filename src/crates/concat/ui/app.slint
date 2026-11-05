@@ -429,6 +429,8 @@ export component App inherits Window {
     in property <CaptionsSheetData> captions;
     in property <[string]> caption-models;
     in property <[string]> caption-languages;
+    in property <[string]> caption-karaoke-themes;
+    in property <[string]> caption-words-per-line;
     callback captions-closed();
     callback captions-voice-toggled(on: bool);
     callback captions-source-changed(index: int);
@@ -437,6 +439,9 @@ export component App inherits Window {
     callback captions-language-changed(index: int);
     callback captions-placement-changed(index: int);
     callback captions-size-changed(index: int);
+    callback captions-karaoke-toggled(on: bool);
+    callback captions-karaoke-theme-changed(index: int);
+    callback captions-words-per-line-changed(index: int);
     callback captions-begin();
     callback captions-cancel();
     callback captions-import-srt();
@@ -850,6 +855,8 @@ export component App inherits Window {
             data: root.captions;
             models: root.caption-models;
             languages: root.caption-languages;
+            karaoke-themes: root.caption-karaoke-themes;
+            words-per-line-options: root.caption-words-per-line;
 
             closed => { root.captions-closed(); }
             voice-toggled(on) => { root.captions-voice-toggled(on); }
@@ -859,6 +866,9 @@ export component App inherits Window {
             language-changed(index) => { root.captions-language-changed(index); }
             placement-changed(index) => { root.captions-placement-changed(index); }
             size-changed(index) => { root.captions-size-changed(index); }
+            karaoke-toggled(on) => { root.captions-karaoke-toggled(on); }
+            karaoke-theme-changed(index) => { root.captions-karaoke-theme-changed(index); }
+            words-per-line-changed(index) => { root.captions-words-per-line-changed(index); }
             begin => { root.captions-begin(); }
             cancel => { root.captions-cancel(); }
             import-srt => { root.captions-import-srt(); }

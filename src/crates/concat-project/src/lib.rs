@@ -89,6 +89,7 @@ mod tests {
                 }),
                 duration: Some(3.0),
                 offset_y: None,
+                effects: None,
             })
             .unwrap()
             .created_id
@@ -1052,6 +1053,7 @@ mod tests {
                 style: None,
                 duration: Some(duration),
                 offset_y: None,
+                effects: None,
             })
             .expect("adds")
             .created_id
@@ -4213,6 +4215,7 @@ mod tests {
                 }),
                 duration: Some(2.5),
                 offset_y: Some(0.38),
+                effects: None,
             })
             .expect("adds")
             .created_id
@@ -4272,6 +4275,7 @@ mod tests {
                 }),
                 duration: Some(5.0),
                 offset_y: None,
+                effects: None,
             })
             .expect("adds")
             .created_id
@@ -4453,6 +4457,7 @@ mod tests {
                 }),
                 duration: Some(5.0),
                 offset_y: None,
+                effects: None,
             })
             .expect("adds")
             .created_id
@@ -4499,6 +4504,7 @@ mod tests {
                 }),
                 duration: Some(5.0),
                 offset_y: None,
+                effects: None,
             })
             .expect("adds")
             .created_id
@@ -4553,6 +4559,7 @@ mod tests {
                 }),
                 duration: Some(5.0),
                 offset_y: None,
+                effects: None,
             })
             .expect("adds")
             .created_id
@@ -5148,6 +5155,7 @@ mod tests {
                 }),
                 duration: None,
                 offset_y: None,
+                effects: None,
             })
             .expect("adds")
             .created_id
@@ -5216,6 +5224,7 @@ mod tests {
                 style: Some(TextStyle::default()),
                 duration: Some(2.0),
                 offset_y: Some(0.4),
+                effects: None,
             },
             Command::MoveClips {
                 moves: vec![ClipMove {

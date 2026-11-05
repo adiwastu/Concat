@@ -51,6 +51,12 @@ export struct CaptionsSheetData {
     placement: int,
     /// 0 Small, 1 Medium, 2 Large
     size: int,
+    /// Highlight the word being spoken, in a box.
+    karaoke: bool,
+    /// Row in the look list.
+    karaoke-theme: int,
+    /// Row in the words-a-line list.
+    words-per-line: int,
     running: bool,
     /// 0..1: where the transcription surely is.
     progress: float,
@@ -76,6 +82,10 @@ export component CaptionsDialog inherits Modal {
     /// "Auto-detect", then every language the transcriber knows, each by
     /// its own name.
     in property <[string]> languages;
+    /// The karaoke looks, by name and colour.
+    in property <[string]> karaoke-themes;
+    /// How many words a karaoke line holds.
+    in property <[string]> words-per-line-options;
 
     callback voice-toggled(on: bool);
     callback source-changed(index: int);
@@ -84,6 +94,9 @@ export component CaptionsDialog inherits Modal {
     callback language-changed(index: int);
     callback placement-changed(index: int);
     callback size-changed(index: int);
+    callback karaoke-toggled(on: bool);
+    callback karaoke-theme-changed(index: int);
+    callback words-per-line-changed(index: int);
     callback begin();
     callback cancel();
     callback import-srt();
@@ -254,6 +267,49 @@ export component CaptionsDialog inherits Modal {
                     options: [I18n.t("common.small"), I18n.t("common.medium"), I18n.t("common.large")];
                     current: root.data.size;
                     changed(index) => { root.size-changed(index); }
+                }
+            }
+
+            // The karaoke look: the word being spoken, highlighted, in a
+            // box behind it. A transcription's look - it needs when each
+            // word was said - so it is not asked of a script.
+            if root.from-voice: HorizontalLayout {
+                padding-top: 4px;
+                spacing: 10px;
+
+                Text {
+                    horizontal-stretch: 1;
+                    text: I18n.t("captions.karaoke");
+                    color: Theme.fg;
+                    font-size: Theme.fs;
+                    vertical-alignment: center;
+                    wrap: word-wrap;
+                }
+
+                VerticalLayout {
+                    alignment: center;
+                    Switch {
+                        checked: root.data.karaoke;
+                        toggled(on) => { root.karaoke-toggled(on); }
+                    }
+                }
+            }
+
+            if root.from-voice && root.data.karaoke: DialogRow {
+                label: I18n.t("captions.karaokeLook");
+                Select {
+                    options: root.karaoke-themes;
+                    current: root.data.karaoke-theme;
+                    changed(index) => { root.karaoke-theme-changed(index); }
+                }
+            }
+
+            if root.from-voice && root.data.karaoke: DialogRow {
+                label: I18n.t("captions.wordsPerLine");
+                Select {
+                    options: root.words-per-line-options;
+                    current: root.data.words-per-line;
+                    changed(index) => { root.words-per-line-changed(index); }
                 }
             }
 
