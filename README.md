@@ -58,7 +58,7 @@ Everything runs locally on a native Rust engine with a GPU compositor. Install i
 
 - 🚫 **No watermarks. No account. No paywall.** Ever.
 - 🔒 **100% local.** Nothing uploads. Works offline.
-- 💬 **Auto-captions.** Local Whisper. Pick a model size, get styled captions on the timeline.
+- 💬 **Auto-captions.** Local Whisper. Pick a model size, get styled captions on the timeline - or the karaoke look: the word being spoken highlighted, in a box, in one of eight looks.
 - 🗣️ **Text-to-speech + voice cloning.** Free local voices, or any voice from a few seconds of a recording.
 - 🧍 **Background removal.** People, objects, or paint the mask yourself.
 - 🎞️ **Keyframes.** Position, scale, rotation, opacity, volume, effect parameters. Curve editor built in.
