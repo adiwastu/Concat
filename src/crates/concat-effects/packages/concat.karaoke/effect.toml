@@ -17,7 +17,7 @@ label = "Highlight"
 type = "color"
 min = 0
 max = 4294967295
-default = 4294967040
+default = 4294902015
 
 # The box behind the spoken word. Its dial is how much of it is drawn -
 # at nothing the box is not drawn at all, and the spoken word is
@@ -28,7 +28,7 @@ label = "Box"
 type = "color"
 min = 0
 max = 4294967295
-default = 4278243512
+default = 13678847
 
 # The spoken word's colour while it sits on the box.
 [[param]]
@@ -37,7 +37,7 @@ label = "Word on box"
 type = "color"
 min = 0
 max = 4294967295
-default = 4294967040
+default = 4294902015
 
 # How much of the box to draw, 100 % whole. At 0 no box: the spoken word
 # is highlighted in `highlight` over the title as painted.
@@ -52,3 +52,9 @@ unit = "%"
 
 [wgsl]
 entry = "effect.wgsl"
+
+# The card shows the look over the canned title, each word said over its
+# third, so the word being spoken is lit and the others are not.
+[card]
+words = true
+moment = 0.5

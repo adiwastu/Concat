@@ -947,5 +947,8 @@
   "voices.styles": "Стилі",
   "voices.stylesHint": "Стиль — це голос з ефектами. Виберіть стиль, щоб писати ним: ефекти ляжуть на мовний кліп, де їх можна змінити.",
   "voices.voices": "Голоси",
-  "voices.yours": "Ваші голоси"
+  "voices.yours": "Ваші голоси",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Вигляд",
+  "captions.wordsPerLine": "Слів у рядку"
 }

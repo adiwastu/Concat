@@ -947,5 +947,8 @@
   "voices.styles": "Stiller",
   "voices.stylesHint": "Stil, efekt uygulanmış bir sestir. Onunla yazmak için birini seçin: efektler konuşma klibine eklenir, orada değiştirebilirsiniz.",
   "voices.voices": "Ses tonları",
-  "voices.yours": "Sizin sesleriniz"
+  "voices.yours": "Sizin sesleriniz",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Görünüm",
+  "captions.wordsPerLine": "Satır başına sözcük"
 }

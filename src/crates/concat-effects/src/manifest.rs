@@ -119,6 +119,12 @@ pub struct CardSettings {
     /// colour, `#rrggbb`, for the key to take out.
     #[serde(default)]
     pub screen: Option<String>,
+    /// For a look over a title's words - a karaoke highlight, say: the
+    /// card's title carries word times, each word said over its third of
+    /// the clip, so the card shows what the look does rather than the
+    /// title as painted.
+    #[serde(default)]
+    pub words: Option<bool>,
 }
 
 impl CardSettings {

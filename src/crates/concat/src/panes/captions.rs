@@ -52,62 +52,14 @@ const TRAILING_PAD: f64 = 0.25;
 /// the word highlighted where no box is drawn. The other words keep the
 /// title's own colour.
 const KARAOKE_THEMES: [(&str, &str, u32, u32, u32); 8] = [
-    (
-        "aqua",
-        "teal box, yellow word",
-        4278243512,
-        4294967040,
-        4294967040,
-    ),
-    (
-        "ember",
-        "burnt orange, warm cream",
-        4294921472,
-        4294963414,
-        4294921472,
-    ),
-    (
-        "lime",
-        "acid green, black word",
-        4290707200,
-        4278190080,
-        4290707200,
-    ),
-    (
-        "grape",
-        "violet box, white word",
-        4287254527,
-        4294967295,
-        4291405823,
-    ),
-    (
-        "emerald",
-        "emerald green, white word",
-        4280468830,
-        4294967295,
-        4289194176,
-    ),
-    (
-        "bubblegum",
-        "hot pink, white word",
-        4294913426,
-        4294967295,
-        4294913426,
-    ),
-    (
-        "mono",
-        "white box, grey words",
-        4294967295,
-        4278190080,
-        4294967295,
-    ),
-    (
-        "ink",
-        "black box, yellow word",
-        4278190080,
-        4294967040,
-        4294967040,
-    ),
+    ("aqua", "teal box, yellow word", 13678847, 4294902015, 4294902015),
+    ("ember", "burnt orange, warm cream", 4283236607, 4293973759, 4283236607),
+    ("lime", "acid green, black word", 3204382975, 255, 3204382975),
+    ("grape", "violet box, white word", 2320498687, 4294967295, 3383230463),
+    ("emerald", "emerald green, white word", 583360255, 4294967295, 2817048831),
+    ("bubblegum", "hot pink, white word", 4281176831, 4294967295, 4281176831),
+    ("mono", "white box, grey words", 4294967295, 255, 4294967295),
+    ("ink", "black box, yellow word", 255, 4294902015, 4294902015),
 ];
 
 /// How many words a karaoke line holds, by the sheet's row.

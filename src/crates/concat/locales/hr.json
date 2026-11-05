@@ -947,5 +947,8 @@
   "voices.styles": "Stilovi",
   "voices.stylesHint": "Stil je glas s efektima. Odaberite jedan da biste njime pisali: efekti idu na govorni isječak, gdje ih možete mijenjati.",
   "voices.voices": "Glasovi",
-  "voices.yours": "Vaši glasovi"
+  "voices.yours": "Vaši glasovi",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Izgled",
+  "captions.wordsPerLine": "Riječi u retku"
 }

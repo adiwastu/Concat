@@ -947,5 +947,8 @@
   "voices.styles": "Stijlen",
   "voices.stylesHint": "Een stijl is een stem met effecten. Kies er een om erin te schrijven: de effecten komen op de spraakclip, waar je ze kunt aanpassen.",
   "voices.voices": "Stemmen",
-  "voices.yours": "Jouw stemmen"
+  "voices.yours": "Jouw stemmen",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Uiterlijk",
+  "captions.wordsPerLine": "Woorden per regel"
 }

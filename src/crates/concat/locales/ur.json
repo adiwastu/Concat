@@ -947,5 +947,8 @@
   "voices.styles": "انداز",
   "voices.stylesHint": "انداز ایفیکٹس والی صوت ہے۔ اس میں لکھنے کے لیے کوئی ایک چنیں: ایفیکٹس تقریر کی کلپ پر لگتے ہیں، جہاں آپ انہیں بدل سکتے ہیں۔",
   "voices.voices": "صوتیں",
-  "voices.yours": "آپ کی صوتیں"
+  "voices.yours": "آپ کی صوتیں",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "لباس",
+  "captions.wordsPerLine": "سطر میں الفاظ"
 }

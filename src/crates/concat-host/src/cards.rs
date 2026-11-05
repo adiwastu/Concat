@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_core::frame::Frame;
-use concat_core::shader::{RevealMap, ShaderPass, TransitionPass};
+use concat_core::shader::{RevealMap, WordMap, ShaderPass, TransitionPass};
 use concat_core::time::Rational;
 use concat_effects::{At, Catalogue, Package};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
@@ -90,6 +90,9 @@ pub struct Card {
     drawing: Drawing,
     /// Seconds into the clip the card shows.
     moment: f64,
+    /// The title's words carry times, each said over its third: what a
+    /// look built on the words' own times says its card shows.
+    timed: bool,
 }
 
 impl Card {
@@ -111,7 +114,11 @@ impl Card {
             )?)
         } else {
             let pass = package.pass(&set, None, None)?;
-            if package.category().eq_ignore_ascii_case("Text") {
+            // A look built on a title's words - a karaoke highlight, and
+            // anything else whose card says so - is drawn over the canned
+            // title, where the words it lights are; over a screen it
+            // would be a no-op, there being no words on a screen.
+            if settings.words == Some(true) || package.category().eq_ignore_ascii_case("Text") {
                 Drawing::Title(pass)
             } else {
                 Drawing::Picture {
@@ -130,6 +137,7 @@ impl Card {
             path: dir.join(name),
             drawing,
             moment,
+            timed: settings.words.unwrap_or(false),
         })
     }
 
@@ -234,7 +242,12 @@ pub struct Painter {
     still: Arc<Frame>,
     turned: Arc<Frame>,
     checker: Arc<Frame>,
-    title: Option<(Arc<Frame>, Arc<RevealMap>)>,
+    title: Option<(
+        Arc<Frame>,
+        Arc<RevealMap>,
+        (u32, u32),
+        Arc<[(i32, i32, u32, u32)]>,
+    )>,
 }
 
 impl Painter {
@@ -296,15 +309,38 @@ impl Painter {
                 })
             }
             Drawing::Title(pass) => {
-                let (title, reveal) = self.title(width, height)?;
+                let (title, reveal, canvas, rects) = self.title(width, height)?;
                 let ground = PlannedLayer::picture(detached_clip(), Arc::clone(&self.still));
                 let overscan = (title.width() as f32 / width as f32)
                     .max(title.height() as f32 / height as f32);
                 let mut words = PlannedLayer::picture(detached_clip(), title);
                 words.track = 1;
                 words.overscan = overscan;
+                // The words' look holds its moment against the clip's own
+                // length, and a card's title is a clip of its own: one
+                // second long, so the moment reads as the fraction it is.
+                words.clip_duration = concat_core::time::Rational::approximate(1.0)
+                    .expect("a second");
                 let mut pass = pass.clone();
                 pass.reveal_map = Some(reveal);
+                if card.timed && !rects.is_empty() {
+                    // Each of the title's words said over its own third of
+                    // the clip, so the look's card shows the word being
+                    // spoken lit and the rest as painted.
+                    let count = rects.len();
+                    let timed: Vec<((i32, i32, u32, u32), f64, f64)> = rects
+                        .iter()
+                        .enumerate()
+                        .map(|(index, rect)| {
+                            (*rect, index as f64 / count as f64, (index + 1) as f64 / count as f64)
+                        })
+                        .collect();
+                    pass.word_map = Some(Arc::new(WordMap::from_timed_rects(
+                        canvas.0,
+                        canvas.1,
+                        &timed,
+                    )));
+                }
                 words.effects = vec![pass];
                 self.compositor.render(&FramePlan {
                     time: moment,
@@ -331,10 +367,16 @@ impl Painter {
     }
 
     /// The title a text effect's card treats, set once: white words with a
-    /// shadow, centred, over nothing, and the order its words reveal in.
-    fn title(&mut self, width: u32, height: u32) -> Result<(Arc<Frame>, Arc<RevealMap>), String> {
-        if let Some((frame, reveal)) = &self.title {
-            return Ok((Arc::clone(frame), Arc::clone(reveal)));
+    /// shadow, centred, over nothing, and the order its words reveal in -
+    /// with the boxes the words sit in, for a look that reads the words'
+    /// times to bake its own map from.
+    fn title(
+        &mut self,
+        width: u32,
+        height: u32,
+    ) -> Result<(Arc<Frame>, Arc<RevealMap>, (u32, u32), Arc<[(i32, i32, u32, u32)]>), String> {
+        if let Some((frame, reveal, canvas, rects)) = &self.title {
+            return Ok((Arc::clone(frame), Arc::clone(reveal), *canvas, Arc::clone(rects)));
         }
         let style = concat_text::TitleStyle {
             content: TITLE.to_owned(),
@@ -374,12 +416,18 @@ impl Painter {
             rendered.height,
             &rects,
         ));
+        let canvas = (rendered.width, rendered.height);
         let frame = Arc::new(
             Frame::from_rgba(rendered.width, rendered.height, rendered.rgba)
                 .ok_or("the title came back the wrong size")?,
         );
-        self.title = Some((Arc::clone(&frame), Arc::clone(&reveal)));
-        Ok((frame, reveal))
+        self.title = Some((
+            Arc::clone(&frame),
+            Arc::clone(&reveal),
+            canvas,
+            Arc::from(rects),
+        ));
+        Ok((frame, reveal, canvas, Arc::clone(&self.title.as_ref().expect("just stored").3)))
     }
 }
 

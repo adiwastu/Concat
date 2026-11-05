@@ -947,5 +947,8 @@
   "voices.styles": "סגנונות",
   "voices.stylesHint": "סגנון הוא קול עם אפקטים. בחרו אחד כדי לכתוב בו: האפקטים נוספים לקליפ הדיבור, ושם אפשר לשנות אותם.",
   "voices.voices": "קולות",
-  "voices.yours": "הקולות שלכם"
+  "voices.yours": "הקולות שלכם",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "מראה",
+  "captions.wordsPerLine": "מילים בשורה"
 }

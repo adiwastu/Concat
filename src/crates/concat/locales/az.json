@@ -947,5 +947,8 @@
   "voices.styles": "Üslublar",
   "voices.stylesHint": "Üslub üzərinə effektlər qoyulmuş səsdir. Onunla yazmaq üçün birini seçin: effektlər nitq klipinə tətbiq olunur və orada onları dəyişə bilərsiniz.",
   "voices.voices": "Səslər",
-  "voices.yours": "Sizin səsləriniz"
+  "voices.yours": "Sizin səsləriniz",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Görünüş",
+  "captions.wordsPerLine": "Sətirdə sözlər"
 }

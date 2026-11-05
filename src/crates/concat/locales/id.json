@@ -947,5 +947,8 @@
   "voices.styles": "Gaya",
   "voices.stylesHint": "Gaya adalah suara dengan efek. Pilih satu untuk menulis dengannya: efeknya dipasang di klip ucapan, tempat kamu bisa mengubahnya.",
   "voices.voices": "Suara narator",
-  "voices.yours": "Suaramu"
+  "voices.yours": "Suaramu",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Tampilan",
+  "captions.wordsPerLine": "Kata per baris"
 }

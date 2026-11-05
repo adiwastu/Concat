@@ -947,5 +947,8 @@
   "voices.styles": "Estilos",
   "voices.stylesHint": "Un estilo es una voz con efectos. Elige uno para escribir con él: los efectos van al clip de voz, donde puedes cambiarlos.",
   "voices.voices": "Voces",
-  "voices.yours": "Tus voces"
+  "voices.yours": "Tus voces",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Aspecto",
+  "captions.wordsPerLine": "Palabras por línea"
 }

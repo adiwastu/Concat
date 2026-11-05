@@ -947,5 +947,8 @@
   "voices.styles": "スタイル",
   "voices.stylesHint": "スタイルはエフェクト付きのボイスです。選ぶとその声で書けます。エフェクトは音声クリップに付き、あとから変更できます。",
   "voices.voices": "ボイス",
-  "voices.yours": "あなたのボイス"
+  "voices.yours": "あなたのボイス",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "見た目",
+  "captions.wordsPerLine": "1行の単語数"
 }

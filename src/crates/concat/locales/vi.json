@@ -947,5 +947,8 @@
   "voices.styles": "Phong cách",
   "voices.stylesHint": "Phong cách là một giọng có hiệu ứng. Chọn một phong cách để viết bằng nó: hiệu ứng được đặt lên clip giọng nói, nơi bạn có thể thay đổi.",
   "voices.voices": "Giọng nói",
-  "voices.yours": "Giọng của bạn"
+  "voices.yours": "Giọng của bạn",
+  "captions.karaoke": "Karaoke",
+  "captions.karaokeLook": "Diện mạo",
+  "captions.wordsPerLine": "Từ mỗi dòng"
 }
