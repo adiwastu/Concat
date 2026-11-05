@@ -23,7 +23,7 @@ use concat_project::Command;
 use concat_project::model::{AppliedFilter, ClipKind, TextStyle, TextWord};
 use concat_project::srt;
 use concat_speech::JobStage;
-use concat_speech::transcribe::{Segment, WordSpan};
+use concat_speech::transcribe::Segment;
 
 use crate::host::{on_ui_in_project, spawn_in_project};
 use crate::i18n::{t, tf};
@@ -52,12 +52,48 @@ const TRAILING_PAD: f64 = 0.25;
 /// the word highlighted where no box is drawn. The other words keep the
 /// title's own colour.
 const KARAOKE_THEMES: [(&str, &str, u32, u32, u32); 8] = [
-    ("aqua", "teal box, yellow word", 13678847, 4294902015, 4294902015),
-    ("ember", "burnt orange, warm cream", 4283236607, 4293973759, 4283236607),
-    ("lime", "acid green, black word", 3204382975, 255, 3204382975),
-    ("grape", "violet box, white word", 2320498687, 4294967295, 3383230463),
-    ("emerald", "emerald green, white word", 583360255, 4294967295, 2817048831),
-    ("bubblegum", "hot pink, white word", 4281176831, 4294967295, 4281176831),
+    (
+        "aqua",
+        "teal box, yellow word",
+        13678847,
+        4294902015,
+        4294902015,
+    ),
+    (
+        "ember",
+        "burnt orange, warm cream",
+        4283236607,
+        4293973759,
+        4283236607,
+    ),
+    (
+        "lime",
+        "acid green, black word",
+        3204382975,
+        255,
+        3204382975,
+    ),
+    (
+        "grape",
+        "violet box, white word",
+        2320498687,
+        4294967295,
+        3383230463,
+    ),
+    (
+        "emerald",
+        "emerald green, white word",
+        583360255,
+        4294967295,
+        2817048831,
+    ),
+    (
+        "bubblegum",
+        "hot pink, white word",
+        4281176831,
+        4294967295,
+        4281176831,
+    ),
     ("mono", "white box, grey words", 4294967295, 255, 4294967295),
     ("ink", "black box, yellow word", 255, 4294902015, 4294902015),
 ];
@@ -1153,7 +1189,7 @@ fn wrap_caption(sentence: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{script_captions, source_label, Command};
+    use super::{Command, script_captions, source_label};
 
     /// The karaoke look's lines: words grouped, each line's words timed in
     /// the clip's own seconds, a line never running into the next.
@@ -1190,14 +1226,7 @@ mod tests {
             (2.0, 2.5, "empat"),
             (2.5, 3.0, "lima"),
         ])];
-        let commands = super::karaoke_commands(
-            &segments,
-            &subject,
-            (0.35, 0.04),
-            None,
-            0,
-            3,
-        );
+        let commands = super::karaoke_commands(&segments, &subject, (0.35, 0.04), None, 0, 3);
         assert_eq!(commands.len(), 2, "five words in threes are two lines");
         let Command::AddTextClip {
             start: first_start,
@@ -1236,11 +1265,11 @@ mod tests {
             .map(|word| (word.start, word.end))
             .collect();
         assert!(
-            said.iter()
-                .zip([(0.0, 0.5), (0.5, 1.0), (1.0, 1.5)])
-                .all(|((got_s, got_e), (want_s, want_e))| {
+            said.iter().zip([(0.0, 0.5), (0.5, 1.0), (1.0, 1.5)]).all(
+                |((got_s, got_e), (want_s, want_e))| {
                     (got_s - want_s).abs() < 1e-9 && (got_e - want_e).abs() < 1e-9
-                }),
+                }
+            ),
             "{said:?}"
         );
         // And the look's own effect rides the clip.
@@ -1264,8 +1293,7 @@ mod tests {
             text: "satu dua".to_owned(),
             words: Vec::new(),
         }];
-        let commands =
-            super::karaoke_commands(&segments, &subject, (0.35, 0.04), None, 0, 3);
+        let commands = super::karaoke_commands(&segments, &subject, (0.35, 0.04), None, 0, 3);
         assert_eq!(commands.len(), 1);
         let Command::AddTextClip { style, .. } = &commands[0] else {
             panic!("a caption lands as a text clip");

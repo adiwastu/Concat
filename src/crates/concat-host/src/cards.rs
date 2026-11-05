@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use concat_core::frame::Frame;
-use concat_core::shader::{RevealMap, WordMap, ShaderPass, TransitionPass};
+use concat_core::shader::{RevealMap, ShaderPass, TransitionPass, WordMap};
 use concat_core::time::Rational;
 use concat_effects::{At, Catalogue, Package};
 use concat_media::{DecodeOptions, Decoder, FrameSource};
@@ -319,8 +319,8 @@ impl Painter {
                 // The words' look holds its moment against the clip's own
                 // length, and a card's title is a clip of its own: one
                 // second long, so the moment reads as the fraction it is.
-                words.clip_duration = concat_core::time::Rational::approximate(1.0)
-                    .expect("a second");
+                words.clip_duration =
+                    concat_core::time::Rational::approximate(1.0).expect("a second");
                 let mut pass = pass.clone();
                 pass.reveal_map = Some(reveal);
                 if card.timed && !rects.is_empty() {
@@ -332,13 +332,15 @@ impl Painter {
                         .iter()
                         .enumerate()
                         .map(|(index, rect)| {
-                            (*rect, index as f64 / count as f64, (index + 1) as f64 / count as f64)
+                            (
+                                *rect,
+                                index as f64 / count as f64,
+                                (index + 1) as f64 / count as f64,
+                            )
                         })
                         .collect();
                     pass.word_map = Some(Arc::new(WordMap::from_timed_rects(
-                        canvas.0,
-                        canvas.1,
-                        &timed,
+                        canvas.0, canvas.1, &timed,
                     )));
                 }
                 words.effects = vec![pass];
@@ -374,9 +376,22 @@ impl Painter {
         &mut self,
         width: u32,
         height: u32,
-    ) -> Result<(Arc<Frame>, Arc<RevealMap>, (u32, u32), Arc<[(i32, i32, u32, u32)]>), String> {
+    ) -> Result<
+        (
+            Arc<Frame>,
+            Arc<RevealMap>,
+            (u32, u32),
+            Arc<[(i32, i32, u32, u32)]>,
+        ),
+        String,
+    > {
         if let Some((frame, reveal, canvas, rects)) = &self.title {
-            return Ok((Arc::clone(frame), Arc::clone(reveal), *canvas, Arc::clone(rects)));
+            return Ok((
+                Arc::clone(frame),
+                Arc::clone(reveal),
+                *canvas,
+                Arc::clone(rects),
+            ));
         }
         let style = concat_text::TitleStyle {
             content: TITLE.to_owned(),
@@ -427,7 +442,12 @@ impl Painter {
             canvas,
             Arc::from(rects),
         ));
-        Ok((frame, reveal, canvas, Arc::clone(&self.title.as_ref().expect("just stored").3)))
+        Ok((
+            frame,
+            reveal,
+            canvas,
+            Arc::clone(&self.title.as_ref().expect("just stored").3),
+        ))
     }
 }
 

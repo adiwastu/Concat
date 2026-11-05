@@ -736,21 +736,16 @@ fn a_pass_reads_its_reveal_map_and_the_identity_everywhere() {
 fn a_pass_lights_the_word_being_spoken() {
     let Some(mut gpu) = gpu() else { return };
     let body = "fn effect(uv: vec2<f32>) -> vec4<f32> {         let word = word_at(uv);         let now = frame.clip_time / max(frame.duration, 0.001);         return select(sample(uv), vec4<f32>(0.0, 1.0, 0.0, 1.0), word.x <= now && now < word.y); }";
-    let map = WordMap::from_timed_rects(
-        4,
-        4,
-        &[((0, 0, 2, 4), 0.0, 0.5), ((2, 0, 2, 4), 0.5, 1.0)],
-    );
+    let map =
+        WordMap::from_timed_rects(4, 4, &[((0, 0, 2, 4), 0.0, 0.5), ((2, 0, 2, 4), 0.5, 1.0)]);
     let mut lit = |fraction: f64| {
         let mut timed = layer(solid(4, 4, [0, 0, 0, 255]));
-        timed.clip_duration =
-            concat_core::time::Rational::approximate(2.0).expect("a rational");
+        timed.clip_duration = concat_core::time::Rational::approximate(2.0).expect("a rational");
         let mut pass = package("test.karaoke", body, "", &[], 1.0);
         pass.word_map = Some(Arc::new(map.clone()));
         timed.effects = vec![pass];
         let mut p = plan(4, 4, vec![timed]);
-        p.time =
-            concat_core::time::Rational::approximate(2.0 * fraction).expect("a rational");
+        p.time = concat_core::time::Rational::approximate(2.0 * fraction).expect("a rational");
         gpu.render(&p)
     };
     let first = lit(0.25);
@@ -766,11 +761,7 @@ fn a_pass_lights_the_word_being_spoken() {
         &[0, 255, 0],
         "the second word is lit"
     );
-    assert_eq!(
-        &second.pixels()[..3],
-        &[0, 0, 0],
-        "the first is done"
-    );
+    assert_eq!(&second.pixels()[..3], &[0, 0, 0], "the first is done");
 
     // No map, no word anywhere, nothing lit.
     let mut plain = layer(solid(4, 4, [0, 0, 0, 255]));
